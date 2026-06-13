@@ -12,9 +12,13 @@ if __name__ == "__main__":
 
     run = CadAgent().run(sys.argv[1], out)
     if run.ok:
+        print(f"visually verified: {run.verified}")
+        if run.critique and not run.verified:
+            print("remaining issues:", run.critique.issues)
         print("outputs ->", {k: str(v) for k, v in run.render.outputs.items()})
         print("open:", run.render.outputs.get("html"))
+        print("trace:", run.trace_path)
     else:
-        print(f"failed after {run.attempts} attempts:", file=sys.stderr)
+        print("failed to produce a rendering:", file=sys.stderr)
         print(run.render.stderr, file=sys.stderr, end="")
         raise SystemExit(1)

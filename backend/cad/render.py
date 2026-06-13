@@ -7,17 +7,21 @@ happens in `_harness.py` inside the child process.
 """
 
 import base64
+import json
 import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Sequence
 
 _HARNESS = Path(__file__).with_name("_harness.py")
 DEFAULT_FORMATS = ("step", "stl", "svg")
 DEFAULT_TIMEOUT = 60  # seconds; untrusted code may hang or loop
+
+# The harness also renders these snapshot views (keys in `outputs`).
+_VIEWS = ("front", "top", "side", "iso")
 
 # Env var names matching any of these are dropped before handing the
 # environment to the untrusted child, so the script can't read our secrets.
@@ -28,6 +32,7 @@ _SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL",
 class RenderResult:
     ok: bool
     outputs: dict[str, Path] = field(default_factory=dict)
+    measurements: dict = field(default_factory=dict)
     stdout: str = ""
     stderr: str = ""
 
@@ -195,6 +200,7 @@ def render_file(
         )
 
     outputs: dict[str, Path] = {}
+    measurements: dict = {}
     if proc.returncode == 0:
         for fmt in formats:
             ext = fmt if fmt.startswith(".") else f".{fmt}"
@@ -205,9 +211,20 @@ def render_file(
         if viewer and "stl" in outputs:
             outputs["html"] = _write_viewer(outputs["stl"])
 
+        # Snapshot views + measurements emitted by the harness.
+        for view in _VIEWS:
+            png = out_dir / f"{name}.{view}.png"
+            if png.exists():
+                outputs[f"view_{view}"] = png
+        meas_path = out_dir / f"{name}.measurements.json"
+        if meas_path.exists():
+            outputs["measurements"] = meas_path
+            measurements = json.loads(meas_path.read_text(encoding="utf-8"))
+
     return RenderResult(
         ok=proc.returncode == 0 and bool(outputs),
         outputs=outputs,
+        measurements=measurements,
         stdout=proc.stdout,
         stderr=proc.stderr,
     )

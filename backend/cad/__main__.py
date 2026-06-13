@@ -14,6 +14,8 @@ if __name__ == "__main__":
         print(result.stdout, end="")
     if result.ok:
         print("OK ->", {k: str(v) for k, v in result.outputs.items()})
+        if result.measurements:
+            print("measurements ->", result.measurements)
     else:
         print("FAILED", file=sys.stderr)
         print(result.stderr, file=sys.stderr, end="")

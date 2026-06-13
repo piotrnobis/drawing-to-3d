@@ -160,28 +160,26 @@ class Conversation:
         fixed = chat.ask_code(f"That failed:\\n{error}\\nReturn the full fixed script.")
     """
 
-    def __init__(
-        self,
-        model: str = DEFAULT_MODEL,
-        *,
-        system_instruction: str | None = None,
-        code_json: bool = False,
-    ):
-        """Open a chat session.
+    def __init__(self, model: str = DEFAULT_MODEL, *, system_instruction: str | None = None):
+        """Open a chat session with a persistent `system_instruction`.
 
-        `system_instruction` sets a persistent persona for every turn.
-        `code_json` makes every turn return structured `{reasoning, code}` JSON.
-        Both are baked into the session config (the SDK reuses it per turn), so
-        they persist without re-sending — and crucially without a per-message
-        config that would drop the system instruction.
+        The system instruction is applied per turn (see `_config`) rather than
+        baked into the session, so different turns can request different response
+        schemas (code vs. a critique vs. analysis) without dropping the persona.
         """
+        self._system_instruction = system_instruction
+        self._chat = _get_client().chats.create(model=model)
+
+    def _config(self, schema=None) -> types.GenerateContentConfig:
+        """Build a per-turn config. A per-message config replaces the session
+        config entirely, so the system instruction must be re-included here."""
         config = types.GenerateContentConfig()
-        if system_instruction:
-            config.system_instruction = system_instruction
-        if code_json:
+        if self._system_instruction:
+            config.system_instruction = self._system_instruction
+        if schema is not None:
             config.response_mime_type = "application/json"
-            config.response_schema = _CODE_SCHEMA
-        self._chat = _get_client().chats.create(model=model, config=config)
+            config.response_schema = schema
+        return config
 
     def ask(
         self,
@@ -189,17 +187,26 @@ class Conversation:
         images: str | Path | Sequence[str | Path] | None = None,
     ) -> str:
         """Send a turn, return reply text. History is retained automatically."""
-        return self._chat.send_message(_build_contents(prompt, images)).text
+        return self._chat.send_message(_build_contents(prompt, images), config=self._config()).text
 
     def ask_code(
         self,
         prompt: str,
         images: str | Path | Sequence[str | Path] | None = None,
     ) -> CodeResult:
-        """Send a turn asking for code; return a `CodeResult`.
-
-        Best paired with `code_json=True` at construction so the reply is
-        structured JSON; otherwise it falls back to scraping a fenced block.
-        """
-        resp = self._chat.send_message(_build_contents(prompt, images))
+        """Send a turn asking for code (structured JSON); return a `CodeResult`."""
+        resp = self._chat.send_message(
+            _build_contents(prompt, images), config=self._config(_CODE_SCHEMA)
+        )
         return _parse_code(resp.text)
+
+    def ask_structured(
+        self,
+        prompt: str,
+        images: str | Path | Sequence[str | Path] | None = None,
+        *,
+        schema,
+    ) -> dict:
+        """Send a turn constrained to `schema`; return the parsed JSON dict."""
+        resp = self._chat.send_message(_build_contents(prompt, images), config=self._config(schema))
+        return json.loads(resp.text)
