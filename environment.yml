@@ -1,0 +1,9 @@
+name: drawing-to-3d
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - google-genai==1.16.1
+      - python-dotenv==1.0.1

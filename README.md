@@ -39,14 +39,15 @@ We deliberately use **one** model provider and a **minimal** dependency set (sma
 .
 ├── README.md              # this file
 ├── environment.yml        # ✅ conda env (python 3.12 + deps)
-├── gemini.py              # ✅ minimal Gemini helper (ask(prompt, image_path))
 ├── .env.example           # ✅ GEMINI_API_KEY=...
 ├── docs/
 │   ├── ARCHITECTURE.md    # ✅ pipeline design + the 3 interface contracts
 │   ├── AGENTS.md          # ✅ rules for Claude Code / AI agents working in this repo
 │   └── SECURITY.md        # ✅ threat model, secrets, Aikido steps
+├── backend/               # FastAPI + pipeline modules
+│   └── llm/
+│       └── gemini.py      # ✅ minimal Gemini helper — ask(prompt, images)
 ├── samples/               # (planned) sample drawings for testing
-├── backend/               # (planned) FastAPI + pipeline modules
 └── frontend/              # (planned) React UI
 ```
 
