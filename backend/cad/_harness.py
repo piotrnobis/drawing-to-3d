@@ -22,15 +22,15 @@ EXPORT_TYPES = {
 
 
 def _resolve_object(namespace, shown):
-    """Pick the model to export: an explicit `result`, else the last show_object()."""
-    obj = namespace.get("result")
+    """Pick the model to export: `result` or `r`, else the last show_object()."""
+    obj = namespace.get("result") or namespace.get("r")
     if obj is not None:
         return obj
     if shown:
         return shown[-1]
     raise RuntimeError(
         "Script produced no model. Assign the model to a variable named "
-        "`result`, or call show_object(model)."
+        "`r` (or `result`), or call show_object(model)."
     )
 
 
