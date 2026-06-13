@@ -1,24 +1,33 @@
-"""CLI: `python -m backend.agent <drawing.png> [out_dir]` runs the CAD agent."""
+"""CLI: `python -m backend.agent <drawing.png> [out_dir] [--thinking LEVEL]`."""
 
-import sys
+import argparse
 
 from backend.agent.agent import CadAgent
+from backend.llm.gemini import THINKING_BUDGETS
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("usage: python -m backend.agent <drawing.png> [out_dir]", file=sys.stderr)
-        raise SystemExit(2)
-    out_dir = sys.argv[2] if len(sys.argv) > 2 else "renders"
+    parser = argparse.ArgumentParser(description="Reconstruct a CadQuery model from a drawing.")
+    parser.add_argument("drawing", help="path to the engineering drawing image")
+    parser.add_argument("out_dir", nargs="?", default="renders", help="output base dir")
+    parser.add_argument(
+        "--thinking",
+        choices=list(THINKING_BUDGETS),
+        default=None,
+        help="model thinking level (default: model's own)",
+    )
+    args = parser.parse_args()
 
-    run = CadAgent().run(sys.argv[1], out_dir)
+    run = CadAgent(thinking=args.thinking).run(args.drawing, args.out_dir)
     print(f"run dir: {run.run_dir}")
     print(f"trace:   {run.trace_path}")
     if run.ok:
-        print(f"visually verified: {run.verified}")
-        if run.critique and not run.verified:
-            print("remaining issues:", run.critique.issues)
+        print(f"verified (visual + dimensions): {run.verified}")
+        if run.gate and run.gate.rows:
+            print("dimension gate:")
+            print(run.gate.table())
+        if run.critique and not run.critique.matches:
+            print("remaining visual issues:", run.critique.issues)
         print("open:", run.run_dir / "final.html")
     else:
-        print("failed to produce a rendering:", file=sys.stderr)
-        print(run.render.stderr, file=sys.stderr, end="")
+        print("failed to produce a rendering")
         raise SystemExit(1)

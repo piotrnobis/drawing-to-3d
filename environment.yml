@@ -8,3 +8,4 @@ dependencies:
   - pip:
       - google-genai==1.16.1
       - python-dotenv==1.0.1
+      - pydantic>=2

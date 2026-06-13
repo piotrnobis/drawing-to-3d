@@ -1,112 +1,119 @@
-# CadQuery reference — idiomatic, working examples
+# CadQuery manual — building parametric models from engineering drawings
 
-These are real, runnable CadQuery snippets (from the official docs). Match this
-style: build features fluently off a `Workplane`, drive everything from named
-dimension variables, select faces/edges with selectors, and finish with
-`result = ...`.
+A condensed, high-signal guide: the mental model, a design procedure, the patterns
+to use, the selectors, and the mistakes to avoid. Mirror the worked examples at the end.
 
-## Workplane basics
+## 1. Mental model
+- CadQuery is a **fluent, chained** API over OpenCASCADE. Each call consumes the current
+  "stack" of geometry and returns a new `Workplane`; read a chain top-to-bottom like a sentence.
+- A **Workplane** is a 2D sketch plane with its own local coordinate frame. Named planes:
+  `"XY"`, `"XZ"`, `"YZ"`. You draw 2D (`circle`, `rect`, `lineTo`, …) then go 3D
+  (`extrude`, `revolve`, `sweep`, `loft`).
+- **Local vs world coordinates:** drawing happens in the *current* workplane's local frame.
+  `.workplane(offset=d)` starts a new plane parallel to the last, `d` along its normal;
+  `.center(x, y)` shifts the local origin.
+- **Design intent (relative positioning):** when natural, position features relative to
+  geometry (`.faces(">Z").workplane().hole(d)`) so the model survives dimension changes.
+  For a multi-body part, building each piece as a primitive at an **absolute** position and
+  unioning is the most robust (see §2).
+- **Construction geometry:** `rect(w, h, forConstruction=True).vertices()` yields points (e.g. a
+  bolt pattern) without adding material.
+
+## 2. Design procedure (drawing → solid)
+1. **Datum & convention.** Z is up; the front view is the X–Z plane. Pick an origin (e.g. the
+   left flange face at X=0). Define EVERY dimension as a named variable.
+2. **Decompose** the part into simple pieces: slabs (`box`), discs/pipes (`cylinder`/`sweep`),
+   ribs (extruded triangle), flanges (extruded profile or sketch).
+3. **Build each piece as a solid** at its absolute position via `.translate((x, y, z))`, giving
+   mating pieces a few-mm **overlap**.
+4. **Union** all structural pieces into ONE connected solid.
+5. **Cut** internal bores and bolt holes AFTER the union (so they pass through every layer).
+6. **Fillet / chamfer** last: select the edges, then apply.
+7. Assign the result to `result`; end with `show_object(result)`.
+
+## 3. Build patterns
+- **Primitives:** `cq.Workplane("XY").box(l, w, h)`, `.cylinder(h, r)`, `.sphere(r)`.
+- **2D → 3D:** sketch then `.extrude(d)`, `.revolve(angle)`, `.sweep(path)`, `.loft()`.
+- **Booleans:** `.union(other)`, `.cut(other)`, `.intersect(other)`.
+- **Holes:** on a face workplane, `.hole(d)` / `.cboreHole(...)`; for patterns use a
+  construction rect/circle + `.vertices()` (or `.pushPoints([...])`) then `.hole(d)`.
+- **Pipes / elbows:** build the centerline with `.lineTo(...)` then `.tangentArcPoint((x, y),
+  relative=False)` (or `.radiusArc((x, y), R)`) for each bend, then `.sweep` a circle along it.
+  Hollow pipe = sweep OD, then cut a swept ID.
+- **Sketch API:** `cq.Sketch().rect(...)`/`.circle(...)`/`.arc(...)`; `.hull()` needs entities
+  added first; place with `.placeSketch(sk)` or build in place with `.sketch() … .finalize()`.
+
+## 4. Selectors (cheat sheet)
+- `">Z"` / `"<Z"` — farthest face/edge in +Z / −Z. `"|Z"` parallel to Z; `"#Z"` perpendicular
+  to Z; `"+Z"` normal points +Z. `"%CIRCLE"` filters by type.
+- Common: `.faces(">Z").workplane()` (top face), `.edges("|Z")` (vertical edges).
+- Directional string selectors do NOT match curved edges — use `"%CIRCLE"` or `.filter(...)`.
+- Multiple matches: index like `">Z[1]"`, combine with `and`/`or`/`not`/`exc`, or
+  `.faces(sel).filter(lambda f: f.Center().z > 45)` for precise picks.
+
+## 5. Pitfalls (these are the actual failures we hit — avoid them)
+- **Z is up.** Named-plane normals: `"XY"`→+Z, `"XZ"`→−Y, `"YZ"`→+X. `extrude(d)` / positive
+  offsets go ALONG the normal (so `"XZ"` extrudes toward −Y) — extrude negative or `.translate`
+  to land on the +Y side, and keep mating parts overlapping so the union stays connected.
+- **`.workplane()` takes an OFFSET float, not a plane name.** `obj.workplane(offset=10)` ✔;
+  `obj.workplane("XY")` ✗ (TypeError). Start a named plane with `cq.Workplane("XY"/"XZ"/"YZ")`.
+- **Elbows: never `threePointArc(mid, end)` with a hand-computed midpoint** — if `mid` is not
+  exactly on the arc, OCC fails (`GC_MakeArcOfCircle … no result`) or the bend misaligns and the
+  pipe disconnects. Use `tangentArcPoint`/`radiusArc` (end point only, stays tangent).
+- **No `.cutDepth()`** (it doesn't exist) — use `.cut()`, `.cutBlind(-d)`, `.cutThruAll()`.
+- **`.fillet(r)` / `.chamfer(c)` operate on already-SELECTED edges:** `part.edges("|Z").fillet(3)`.
+  Never pass an edge list as an argument.
+- **`hull()` is Sketch-only** — build a `cq.Sketch()`, add arcs/segments/circles, THEN `.hull()`.
+- **Drill holes AFTER unioning** all solids; **make mating parts overlap** before union; the final
+  `result` must be ONE connected solid.
+- **Workplane on a face:** select a SINGLE planar face (precise selector or `.filter`) or you get
+  `Selected faces must be co-planar`.
+- **Don't invent methods** — stick to the documented API above.
+
+## 6. Worked examples
 
 ```python
 import cadquery as cq
 
-length, height, thickness, hole_d = 80.0, 60.0, 10.0, 22.0
+# box + centered hole through the top face
+result = cq.Workplane("XY").box(80, 60, 10).faces(">Z").workplane().hole(22)
+```
 
-# box, then drill a centered hole through the top face
+```python
+# fillet all vertical edges
+result = cq.Workplane("XY").box(40, 30, 10).edges("|Z").fillet(3)
+```
+
+```python
+# bolt pattern via a construction rectangle's corners
 result = (
-    cq.Workplane("XY")
-    .box(length, height, thickness)
-    .faces(">Z")
-    .workplane()
-    .hole(hole_d)
-)
-```
-
-```python
-# round all vertical edges
-result = cq.Workplane("XY").box(3, 3, 0.5).edges("|Z").fillet(0.125)
-```
-
-## 2D profile -> extrude (lines, arcs, splines, polylines)
-
-```python
-# lines + a three-point arc, closed and extruded
-result = (
-    cq.Workplane("front")
-    .lineTo(2.0, 0).lineTo(2.0, 1.0)
-    .threePointArc((1.0, 1.5), (0.0, 1.0))
-    .close()
-    .extrude(0.25)
-)
-```
-
-```python
-# half profile via polyline, mirrored, then extruded (I-beam)
-L, H, W, t = 100.0, 20.0, 20.0, 1.0
-pts = [(0, H/2), (W/2, H/2), (W/2, H/2 - t), (t/2, H/2 - t),
-       (t/2, t - H/2), (W/2, t - H/2), (W/2, -H/2), (0, -H/2)]
-result = cq.Workplane("front").polyline(pts).mirrorY().extrude(L)
-```
-
-## Hole patterns via construction geometry
-
-```python
-# counterbored holes at the corners of a construction rectangle
-result = (
-    cq.Workplane("XY")
-    .box(4, 2, 0.5)
+    cq.Workplane("XY").box(40, 20, 5)
     .faces(">Z").workplane()
-    .rect(3.5, 1.5, forConstruction=True)   # construction rect -> its vertices
-    .vertices()
-    .cboreHole(0.125, 0.25, 0.125, depth=None)
-)
-```
-
-## Sketch API — the CORRECT way to use hull()
-
-`hull()` operates on the entities ALREADY ADDED to a `cq.Sketch()`. You must add
-arcs / circles / segments FIRST, then call `.hull()`. Calling `.hull()` on an
-empty selection (or on a `Workplane`) raises `ValueError: No entities specified`.
-
-```python
-# convex hull around two circles and a segment (a "diamond"/obround flange)
-result = (
-    cq.Sketch()
-    .arc((0, 0), 1.0, 0.0, 360.0)      # circle as a full arc, center (0,0) r=1.0
-    .arc((1, 1.5), 0.5, 0.0, 360.0)    # second circle
-    .segment((0.0, 2), (-1, 3.0))
-    .hull()
+    .rect(30, 12, forConstruction=True).vertices()
+    .hole(5)
 )
 ```
 
 ```python
-# rectangle with filleted corners
-result = cq.Sketch().rect(2, 2).vertices().fillet(0.25).reset()
-
-# subtractive circles at the trapezoid's vertices (mode="s" = subtract)
-result = cq.Sketch().trapezoid(4, 3, 90).vertices().circle(0.5, mode="s")
-```
-
-## Placing a Sketch on a face and extruding / cutting
-
-```python
-# build a sketch in place on a face, then extrude
-result = (
-    cq.Workplane().box(5, 5, 1)
-    .faces(">Z").sketch()
-    .regularPolygon(2, 3)
-    .finalize()
-    .extrude(0.5)
-)
+# convex-hull (obround) flange: hull a Sketch, place it, extrude to a solid
+sk = cq.Sketch().arc((0, 0), 12.5, 0.0, 360.0).arc((0, 17.5), 5.0, 0.0, 360.0).hull()
+result = cq.Workplane("XY").placeSketch(sk).extrude(3.75)
 ```
 
 ```python
-# reuse a pre-built sketch via placeSketch, then cut
-s = cq.Sketch().trapezoid(3, 1, 110).vertices().fillet(0.2)
-result = (
-    cq.Workplane().box(5, 5, 5)
-    .faces(">X").workplane()
-    .placeSketch(s)
-    .cutThruAll()
+# swept hollow pipe with a robust 90° elbow (no hand-computed arc midpoints)
+import cadquery as cq
+
+R = 18.75
+Xv = 56.25 + R                          # vertical run centerline; start + R => clean quarter turn
+OD, ID = 25.0, 20.0
+path = (
+    cq.Workplane("XZ").moveTo(0, 0)
+    .lineTo(Xv - R, 0)                  # horizontal run along Z=0
+    .tangentArcPoint((Xv, R), relative=False)  # tangent quarter turn up
+    .lineTo(Xv, 50.0)                   # vertical run
 )
+outer = cq.Workplane("YZ").circle(OD / 2).sweep(path)
+bore = cq.Workplane("YZ").circle(ID / 2).sweep(path)
+result = outer.cut(bore)
 ```
