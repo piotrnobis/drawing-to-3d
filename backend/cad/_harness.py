@@ -79,6 +79,7 @@ def _measure(shape) -> dict:
         "bbox": {"x": round(bb.xlen, 3), "y": round(bb.ylen, 3), "z": round(bb.zlen, 3)},
         "hole_diameters": sorted(holes),
         "hole_count": len(holes),
+        "solid_count": len(shape.Solids()),  # >1 means disconnected pieces
     }
 
 

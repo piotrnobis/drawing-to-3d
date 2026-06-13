@@ -9,17 +9,26 @@ import json
 import mimetypes
 import os
 import re
+import sys
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 load_dotenv()  # loads GEMINI_API_KEY from .env
 
 DEFAULT_MODEL = "gemini-3.5-flash"
+
+# Long multi-call runs hit the occasional transient network/server error; retry
+# those with backoff instead of letting one hiccup kill the whole pipeline.
+_RETRY_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 2.0  # seconds, doubled each attempt
 
 
 @dataclass
@@ -39,6 +48,31 @@ def _get_client() -> genai.Client:
     if _client is None:
         _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     return _client
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Whether a Gemini call failure is worth retrying (network / 5xx / rate limit)."""
+    if isinstance(exc, httpx.TransportError):  # connect/read/timeout/protocol errors
+        return True
+    if isinstance(exc, genai_errors.ServerError):  # 5xx
+        return True
+    return getattr(exc, "code", None) in (429, 500, 502, 503, 504)
+
+
+def _retry(call):
+    """Run `call()`, retrying transient failures with exponential backoff."""
+    for attempt in range(_RETRY_ATTEMPTS):
+        try:
+            return call()
+        except Exception as exc:  # noqa: BLE001 — re-raised unless transient
+            if attempt == _RETRY_ATTEMPTS - 1 or not _is_transient(exc):
+                raise
+            delay = _RETRY_BASE_DELAY * (2**attempt)
+            print(
+                f"  transient API error ({type(exc).__name__}); retrying in {delay:.0f}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
 
 
 def _image_part(image_path: str | Path) -> types.Part:
@@ -67,7 +101,8 @@ def ask(
     from each file extension.
     """
     contents = _build_contents(prompt, images)
-    return _get_client().models.generate_content(model=model, contents=contents).text
+    resp = _retry(lambda: _get_client().models.generate_content(model=model, contents=contents))
+    return resp.text
 
 
 # Structured output: the model reasons first, then emits code, as two JSON
@@ -131,10 +166,12 @@ def ask_code_json(
     model: str = DEFAULT_MODEL,
 ) -> CodeResult:
     """Ask for code via structured JSON; return a `CodeResult` (stateless)."""
-    resp = _get_client().models.generate_content(
-        model=model,
-        contents=_build_contents(prompt, images),
-        config=_CODE_CONFIG,
+    resp = _retry(
+        lambda: _get_client().models.generate_content(
+            model=model,
+            contents=_build_contents(prompt, images),
+            config=_CODE_CONFIG,
+        )
     )
     return _parse_code(resp.text)
 
@@ -187,7 +224,10 @@ class Conversation:
         images: str | Path | Sequence[str | Path] | None = None,
     ) -> str:
         """Send a turn, return reply text. History is retained automatically."""
-        return self._chat.send_message(_build_contents(prompt, images), config=self._config()).text
+        resp = _retry(
+            lambda: self._chat.send_message(_build_contents(prompt, images), config=self._config())
+        )
+        return resp.text
 
     def ask_code(
         self,
@@ -195,8 +235,10 @@ class Conversation:
         images: str | Path | Sequence[str | Path] | None = None,
     ) -> CodeResult:
         """Send a turn asking for code (structured JSON); return a `CodeResult`."""
-        resp = self._chat.send_message(
-            _build_contents(prompt, images), config=self._config(_CODE_SCHEMA)
+        resp = _retry(
+            lambda: self._chat.send_message(
+                _build_contents(prompt, images), config=self._config(_CODE_SCHEMA)
+            )
         )
         return _parse_code(resp.text)
 
@@ -208,5 +250,9 @@ class Conversation:
         schema,
     ) -> dict:
         """Send a turn constrained to `schema`; return the parsed JSON dict."""
-        resp = self._chat.send_message(_build_contents(prompt, images), config=self._config(schema))
+        resp = _retry(
+            lambda: self._chat.send_message(
+                _build_contents(prompt, images), config=self._config(schema)
+            )
+        )
         return json.loads(resp.text)

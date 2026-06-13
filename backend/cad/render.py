@@ -69,6 +69,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
+// CAD convention: Z is up (matches how the model is built and rendered).
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
+
 const b64 = "__B64__";
 const bin = atob(b64);
 const bytes = new Uint8Array(bin.length);
@@ -83,6 +86,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100000);
+camera.up.set(0, 0, 1);
 
 const geometry = new STLLoader().parse(bytes.buffer);
 geometry.computeVertexNormals();
@@ -108,9 +112,11 @@ scene.add(key);
 const fill = new THREE.DirectionalLight(0xffffff, 0.4);
 fill.position.set(-1, -0.5, -1);
 scene.add(fill);
-scene.add(new THREE.GridHelper(radius * 4, 20, 0x2a2f3a, 0x22262e));
+const grid = new THREE.GridHelper(radius * 4, 20, 0x2a2f3a, 0x22262e);
+grid.rotateX(Math.PI / 2);  // lay the grid in the XY plane (Z up)
+scene.add(grid);
 
-camera.position.set(radius * 2, radius * 2, radius * 2);
+camera.position.set(radius * 2, -radius * 2, radius * 1.5);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.target.set(0, 0, 0);
