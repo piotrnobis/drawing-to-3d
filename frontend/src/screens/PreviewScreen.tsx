@@ -1,4 +1,5 @@
 import { GlassCard, PrimaryButton } from "../components/GlassCard";
+import { PageHeader } from "../components/PageHeader";
 
 interface Props {
   onNext: () => void;
@@ -10,41 +11,43 @@ const openViewer = () =>
 export function PreviewScreen({ onNext }: Props) {
   return (
     <div className="mx-auto w-full max-w-4xl">
-      <div className="mb-8 text-center">
-        <h2 className="font-[family-name:var(--font-display)] text-4xl text-white">Your 3D model</h2>
-        <p className="mt-2 text-sm text-zinc-500">Final model — inspect only, no further edits</p>
-      </div>
+      <PageHeader
+        label="Preview"
+        title="Your 3D model"
+        subtitle="Final model — inspect only, no further edits"
+      />
 
       <GlassCard>
-        <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-          <p className="text-sm text-emerald-400/90">
-            <span className="font-semibold">Locked for export.</span>{" "}
-            <span className="text-emerald-400/70">Edits were completed in Verify. This model is ready to ship.</span>
+        <div className="mb-6 flex items-center justify-between border border-[var(--color-border)] bg-white px-5 py-4">
+          <p className="text-sm text-[var(--color-muted)]">
+            <span className="text-[var(--color-ink)]">Locked for export.</span> Edits were completed in
+            Verify. This model is ready to ship.
           </p>
-          <span className="shrink-0 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400">
-            FINAL
+          <span className="shrink-0 text-[10px] tracking-[0.2em] uppercase text-[var(--color-pass)]">
+            Final
           </span>
         </div>
 
         <button
           type="button"
           onClick={openViewer}
-          className="relative flex aspect-video w-full cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-gradient-to-br from-zinc-900 to-black transition hover:border-white/15"
+          className="relative flex aspect-[16/10] w-full cursor-pointer items-center justify-center overflow-hidden border border-[var(--color-border)] bg-[#eceae6] transition hover:border-[var(--color-border-strong)]"
         >
           <div
-            className="h-48 w-48 animate-float"
+            className="h-40 w-40 opacity-60"
             style={{
-              background:
-                "linear-gradient(135deg, rgba(197,52,31,0.3) 0%, rgba(124,58,237,0.2) 50%, rgba(255,255,255,0.05) 100%)",
+              background: "linear-gradient(145deg, #d4cfc7 0%, #b8b2a8 100%)",
               clipPath:
                 "polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)",
             }}
           />
-          <p className="absolute bottom-4 text-xs text-zinc-500">Click to open full 3D viewer ↗</p>
+          <p className="absolute bottom-5 text-xs tracking-wide text-[var(--color-muted)]">
+            Click to open full 3D viewer ↗
+          </p>
         </button>
 
-        <div className="mt-5">
-          <PrimaryButton onClick={onNext}>Export →</PrimaryButton>
+        <div className="mt-6">
+          <PrimaryButton onClick={onNext}>Export</PrimaryButton>
         </div>
       </GlassCard>
     </div>

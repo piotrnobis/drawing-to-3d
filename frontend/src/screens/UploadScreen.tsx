@@ -22,31 +22,27 @@ export function UploadScreen({ session, onUpdate, onNext }: Props) {
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <div className="mb-10 text-center">
-        <p className="mb-3 text-xs font-medium uppercase tracking-[0.25em] text-zinc-500">
-          Drawing → editable solid
-        </p>
-        <h1 className="font-[family-name:var(--font-display)] text-5xl font-normal leading-[1.1] tracking-tight text-white md:text-6xl">
+      <div className="mb-16 text-center">
+        <p className="label-spaced mb-6">Drawing to editable solid</p>
+        <h1 className="font-[family-name:var(--font-display)] text-5xl font-normal leading-[1.1] tracking-tight text-[var(--color-ink)] md:text-6xl">
           Turn a drawing into a part
           <br />
-          <em className="text-zinc-400">you&apos;ll actually edit</em>
+          <em className="text-[var(--color-muted)]">you&apos;ll actually edit</em>
         </h1>
-        <p className="mx-auto mt-5 max-w-md text-sm leading-relaxed text-zinc-500">
-          Upload an orthographic engineering drawing, describe the part, and DATUM rebuilds it as
+        <p className="mx-auto mt-6 max-w-md text-sm leading-relaxed text-[var(--color-muted)]">
+          Upload an orthographic engineering drawing, describe the part, and Datum rebuilds it as
           parametric CAD — verified dimension by dimension.
         </p>
       </div>
 
-      <GlassCard className="animate-float space-y-5">
-        <label className="block text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Describe the part
-        </label>
+      <GlassCard className="space-y-6">
+        <label className="label-spaced block">Describe the part</label>
         <textarea
           value={session.prompt}
           onChange={(e) => onUpdate({ prompt: e.target.value })}
           placeholder="L-bracket, 60×60 mm, wall thickness 18, bore Ø12, European projection…"
           rows={3}
-          className="w-full resize-none rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
+          className="w-full resize-none border border-[var(--color-border)] bg-white px-4 py-3 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-muted)]/60 outline-none focus:border-[var(--color-border-strong)]"
         />
 
         <div
@@ -61,10 +57,10 @@ export function UploadScreen({ session, onUpdate, onNext }: Props) {
             const f = e.dataTransfer.files[0];
             if (f) handleFile(f);
           }}
-          className={`relative flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition ${
+          className={`relative flex min-h-[200px] cursor-pointer flex-col items-center justify-center border border-dashed transition ${
             dragging
-              ? "border-[#c5341f]/60 bg-[#c5341f]/5"
-              : "border-white/10 bg-black/20 hover:border-white/20"
+              ? "border-[var(--color-warm)] bg-[var(--color-warm)]/5"
+              : "border-[var(--color-border)] bg-white hover:border-[var(--color-border-strong)]"
           }`}
           onClick={() => document.getElementById("file-input")?.click()}
         >
@@ -82,19 +78,18 @@ export function UploadScreen({ session, onUpdate, onNext }: Props) {
             <img
               src={session.imagePreview}
               alt="Uploaded drawing"
-              className="max-h-40 rounded-lg object-contain"
+              className="max-h-44 object-contain p-4"
             />
           ) : (
             <>
-              <span className="text-3xl text-zinc-600">↑</span>
-              <p className="mt-2 text-sm text-zinc-400">Drop PNG drawing here</p>
-              <p className="text-xs text-zinc-600">or click to browse</p>
+              <p className="text-sm text-[var(--color-muted)]">Drop PNG drawing here</p>
+              <p className="mt-1 text-xs text-[var(--color-border-strong)]">or click to browse</p>
             </>
           )}
         </div>
 
         <PrimaryButton onClick={onNext} disabled={!session.imageFile}>
-          Read drawing →
+          Read drawing
         </PrimaryButton>
       </GlassCard>
     </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { GlassCard, PrimaryButton, SecondaryButton } from "../components/GlassCard";
+import { PageHeader } from "../components/PageHeader";
 import type { SessionState } from "../types";
 
 interface Props {
@@ -37,12 +38,11 @@ export function VerifyScreen({ session, onUpdate, onNext, onRefine }: Props) {
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <div className="mb-8 text-center">
-        <h2 className="font-[family-name:var(--font-display)] text-4xl text-white">
-          We do not just generate. We check.
-        </h2>
-        <p className="mt-2 text-sm text-zinc-500">Shape overlay + dimension table — grounded feedback</p>
-      </div>
+      <PageHeader
+        label="Verify"
+        title="We do not just generate. We check."
+        subtitle="Shape overlay and dimension table — grounded feedback"
+      />
 
       {!loaded ? (
         <GlassCard className="mx-auto max-w-md text-center">
@@ -50,66 +50,58 @@ export function VerifyScreen({ session, onUpdate, onNext, onRefine }: Props) {
         </GlassCard>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-2">
-            <GlassCard>
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-[11px] uppercase tracking-wider text-zinc-500">Overlay diff</p>
-                <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-zinc-400">
-                  IoU {(session.iou ?? 0).toFixed(2)}
-                </span>
+          <div className="grid gap-px border border-[var(--color-border)] bg-[var(--color-border)] md:grid-cols-2">
+            <GlassCard className="border-0">
+              <div className="mb-4 flex items-center justify-between">
+                <p className="label-spaced">Overlay diff</p>
+                <span className="text-xs text-[var(--color-muted)]">IoU {(session.iou ?? 0).toFixed(2)}</span>
               </div>
               {session.overlayPreview && (
-                <img
-                  src={session.overlayPreview}
-                  alt="Overlay"
-                  className="w-full rounded-lg bg-white opacity-90"
-                />
+                <img src={session.overlayPreview} alt="Overlay" className="w-full bg-white" />
               )}
-              <p className="mt-2 text-xs text-zinc-600">
-                <span className="text-zinc-400">—</span> original &nbsp;
-                <span className="text-[#c5341f]">- -</span> rebuilt
+              <p className="mt-3 text-xs text-[var(--color-muted)]">
+                <span>—</span> original &nbsp;
+                <span className="text-[var(--color-flag)]">- -</span> rebuilt
               </p>
-              <div className="mt-4 flex flex-col gap-2">
+              <div className="mt-5 flex flex-col gap-2">
                 <button
                   type="button"
                   onClick={openViewer}
-                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-medium text-zinc-300 transition hover:border-[#c5341f]/40 hover:bg-[#c5341f]/10 hover:text-white"
+                  className="w-full border border-[var(--color-border)] bg-white px-4 py-2.5 text-xs tracking-wide text-[var(--color-ink)] transition hover:border-[var(--color-ink)]"
                 >
                   View 3D model ↗
                 </button>
                 <button
                   type="button"
                   onClick={openCadEditor}
-                  className="w-full rounded-xl border border-[#569cd6]/30 bg-[#569cd6]/10 px-4 py-2.5 text-xs font-medium text-[#7ec8e3] transition hover:bg-[#569cd6]/20 hover:text-white"
+                  className="w-full border border-[var(--color-border)] bg-white px-4 py-2.5 text-xs tracking-wide text-[var(--color-ink)] transition hover:border-[var(--color-ink)]"
                 >
                   Edit in CAD editor ↗
                 </button>
               </div>
             </GlassCard>
 
-            <GlassCard>
-              <p className="mb-3 text-[11px] uppercase tracking-wider text-zinc-500">Dimensions</p>
+            <GlassCard className="border-0">
+              <p className="label-spaced mb-4">Dimensions</p>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-zinc-500">
-                    <th className="pb-2 text-left">Dimension</th>
-                    <th className="pb-2 text-right">Spec</th>
-                    <th className="pb-2 text-right">Built</th>
-                    <th className="pb-2 text-right">Status</th>
+                  <tr className="text-xs text-[var(--color-muted)]">
+                    <th className="pb-3 text-left font-medium">Dimension</th>
+                    <th className="pb-3 text-right font-medium">Spec</th>
+                    <th className="pb-3 text-right font-medium">Built</th>
+                    <th className="pb-3 text-right font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {session.dimensions.map((d) => (
-                    <tr key={d.name} className="border-t border-white/5">
-                      <td className="py-2.5 text-zinc-300">{d.name}</td>
-                      <td className="py-2.5 text-right text-zinc-400">{d.spec.toFixed(2)}</td>
-                      <td className="py-2.5 text-right text-zinc-400">{d.built.toFixed(2)}</td>
-                      <td className="py-2.5 text-right">
+                    <tr key={d.name} className="border-t border-[var(--color-border)]">
+                      <td className="py-3 text-[var(--color-ink)]">{d.name}</td>
+                      <td className="py-3 text-right text-[var(--color-muted)]">{d.spec.toFixed(2)}</td>
+                      <td className="py-3 text-right text-[var(--color-muted)]">{d.built.toFixed(2)}</td>
+                      <td className="py-3 text-right">
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                            d.status === "PASS"
-                              ? "bg-emerald-500/15 text-emerald-400"
-                              : "bg-[#c5341f]/15 text-[#c5341f]"
+                          className={`text-[11px] tracking-wider uppercase ${
+                            d.status === "PASS" ? "text-[var(--color-pass)]" : "text-[var(--color-flag)]"
                           }`}
                         >
                           {d.status}
@@ -122,9 +114,9 @@ export function VerifyScreen({ session, onUpdate, onNext, onRefine }: Props) {
             </GlassCard>
           </div>
 
-          <GlassCard className="mt-4">
+          <GlassCard className="mt-8">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <p className="text-sm text-zinc-400">
+              <p className="text-sm text-[var(--color-muted)]">
                 Iteration {session.iteration}/3
                 {hasFlag && " — FLAG detected, refine recommended"}
               </p>
@@ -142,7 +134,7 @@ export function VerifyScreen({ session, onUpdate, onNext, onRefine }: Props) {
                     </SecondaryButton>
                   </>
                 )}
-                <PrimaryButton onClick={onNext}>Continue to 3D →</PrimaryButton>
+                <PrimaryButton onClick={onNext}>Continue to 3D</PrimaryButton>
               </div>
             </div>
           </GlassCard>

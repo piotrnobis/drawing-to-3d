@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { GlassCard } from "../components/GlassCard";
+import { PageHeader } from "../components/PageHeader";
 
 interface Props {
   onDone: () => void;
@@ -27,24 +28,27 @@ export function BuildScreen({ onDone }: Props) {
 
   return (
     <div className="mx-auto w-full max-w-lg">
-      <div className="mb-8 text-center">
-        <h2 className="font-[family-name:var(--font-display)] text-4xl text-white">Building…</h2>
-        <p className="mt-2 text-sm text-zinc-500">Turning your spec into parametric solid geometry</p>
-      </div>
+      <PageHeader
+        label="Build"
+        title="Building"
+        subtitle="Turning your spec into parametric solid geometry"
+      />
 
-      <GlassCard className="space-y-4">
+      <GlassCard className="space-y-5">
         {STEPS.map((label, i) => (
-          <div key={label} className="flex items-center gap-3">
+          <div key={label} className="flex items-center gap-4 border-b border-[var(--color-border)] pb-5 last:border-0 last:pb-0">
             <span
-              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-                step > i ? "bg-[#c5341f]/20 text-[#c5341f]" : "bg-white/5 text-zinc-600"
+              className={`flex h-7 w-7 items-center justify-center text-xs ${
+                step > i
+                  ? "bg-[var(--color-ink)] text-[var(--color-surface-raised)]"
+                  : "border border-[var(--color-border)] text-[var(--color-muted)]"
               }`}
             >
               {step > i ? "✓" : i + 1}
             </span>
-            <span className={step > i ? "text-zinc-300" : "text-zinc-600"}>{label}</span>
+            <span className={step > i ? "text-[var(--color-ink)]" : "text-[var(--color-muted)]"}>{label}</span>
             {step === i + 1 && step <= STEPS.length && (
-              <span className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+              <span className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-border)] border-t-[var(--color-ink)]" />
             )}
           </div>
         ))}

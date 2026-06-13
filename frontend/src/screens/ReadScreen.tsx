@@ -1,99 +1,147 @@
 import { useState } from "react";
 import { GlassCard, PrimaryButton, SecondaryButton } from "../components/GlassCard";
-import type { SessionState } from "../types";
+import { PageHeader } from "../components/PageHeader";
+import type { DimensionRow, SessionState } from "../types";
 
 interface Props {
   session: SessionState;
   onUpdate: (patch: Partial<SessionState>) => void;
   onNext: () => void;
-  onRefine: (feedback: string) => void;
+  onRefine?: (feedback: string) => void;
 }
 
-const MOCK_DIMS = [
-  { name: "Overall height", spec: 60, built: 60, status: "PASS" as const },
-  { name: "Overall width", spec: 60, built: 60, status: "PASS" as const },
-  { name: "Wall thickness", spec: 18, built: 18, status: "PASS" as const },
-  { name: "Bore Ø", spec: 12, built: 12, status: "PASS" as const },
+const MOCK_DIMS: DimensionRow[] = [
+  { name: "Overall height", spec: 60, built: 60, status: "PASS" },
+  { name: "Overall width", spec: 60, built: 60, status: "PASS" },
+  { name: "Wall thickness", spec: 18, built: 18, status: "PASS" },
+  { name: "Bore Ø", spec: 12, built: 12, status: "PASS" },
 ];
+
+function refineDimensions(dims: DimensionRow[], feedback: string): DimensionRow[] {
+  const lower = feedback.toLowerCase();
+  const nums = feedback.match(/\d+\.?\d*/g)?.map(Number) ?? [];
+  const next = nums[0];
+
+  return dims.map((d) => {
+    const name = d.name.toLowerCase();
+    if (next !== undefined) {
+      if ((lower.includes("bore") || lower.includes("ø") || lower.includes("diameter")) && name.includes("bore")) {
+        return { ...d, spec: next, built: next };
+      }
+      if ((lower.includes("wall") || lower.includes("thickness")) && name.includes("wall")) {
+        return { ...d, spec: next, built: next };
+      }
+      if (lower.includes("height") && name.includes("height")) {
+        return { ...d, spec: next, built: next };
+      }
+      if (lower.includes("width") && name.includes("width")) {
+        return { ...d, spec: next, built: next };
+      }
+    }
+    return d;
+  });
+}
 
 export function ReadScreen({ session, onUpdate, onNext, onRefine }: Props) {
   const [feedback, setFeedback] = useState("");
   const [loading, setLoading] = useState(false);
   const [read, setRead] = useState(!!session.reconstructedPreview);
+  const [revision, setRevision] = useState(session.iteration || 1);
+  const [status, setStatus] = useState<string | null>(null);
 
   const runRead = async () => {
     setLoading(true);
+    setStatus(null);
     await new Promise((r) => setTimeout(r, 1400));
     onUpdate({
       reconstructedPreview: session.imagePreview,
       svgPreview: session.imagePreview,
       dimensions: MOCK_DIMS,
+      iteration: 1,
     });
     setRead(true);
+    setRevision(1);
     setLoading(false);
   };
 
   const handleRefine = async () => {
-    if (!feedback.trim()) return;
+    const note = feedback.trim();
+    if (!note) {
+      setStatus("Add feedback above before regenerating.");
+      return;
+    }
+
     setLoading(true);
-    onRefine(feedback);
+    setStatus(null);
+    onRefine?.(note);
+
     await new Promise((r) => setTimeout(r, 1200));
+
+    const nextRevision = revision + 1;
+    const refinedDims = refineDimensions(
+      session.dimensions.length ? session.dimensions : MOCK_DIMS,
+      note,
+    );
+
+    onUpdate({
+      dimensions: refinedDims,
+      iteration: nextRevision,
+      reconstructedPreview: session.imagePreview,
+      svgPreview: session.imagePreview,
+    });
+
+    setRevision(nextRevision);
     setFeedback("");
+    setStatus(`Read v${nextRevision} — regenerated with your feedback.`);
     setLoading(false);
   };
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <div className="mb-8 text-center">
-        <h2 className="font-[family-name:var(--font-display)] text-4xl text-white">
-          What did we read?
-        </h2>
-        <p className="mt-2 text-sm text-zinc-500">
-          Gemini extracts an SVG reconstruction + structured spec. You review before we build.
-        </p>
-      </div>
+      <PageHeader
+        label="Review"
+        title="What did we read?"
+        subtitle="Gemini extracts an SVG reconstruction and structured spec. You review before we build."
+      />
 
       {!read ? (
         <GlassCard className="mx-auto max-w-lg text-center">
-          <p className="mb-4 text-sm text-zinc-400">Ready to send your drawing to Gemini</p>
+          <p className="mb-6 text-sm text-[var(--color-muted)]">Ready to send your drawing to Gemini</p>
           <PrimaryButton onClick={runRead} loading={loading}>
             Extract spec & SVG
           </PrimaryButton>
         </GlassCard>
       ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          <GlassCard>
-            <p className="mb-3 text-[11px] uppercase tracking-wider text-zinc-500">Original</p>
+        <div className="grid gap-px border border-[var(--color-border)] bg-[var(--color-border)] md:grid-cols-3">
+          <GlassCard className="border-0">
+            <p className="label-spaced mb-4">Original</p>
             {session.imagePreview && (
-              <img src={session.imagePreview} alt="Original" className="w-full rounded-lg bg-white" />
+              <img src={session.imagePreview} alt="Original" className="w-full bg-white" />
             )}
           </GlassCard>
-          <GlassCard>
-            <p className="mb-3 text-[11px] uppercase tracking-wider text-zinc-500">
-              Reconstructed SVG → PNG
-            </p>
+          <GlassCard className="border-0">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="label-spaced">Reconstructed</p>
+              <span className="text-[10px] tracking-widest text-[var(--color-muted)]">v{revision}</span>
+            </div>
             {session.reconstructedPreview && (
-              <img
-                src={session.reconstructedPreview}
-                alt="Reconstructed"
-                className="w-full rounded-lg bg-white"
-              />
+              <img src={session.reconstructedPreview} alt="Reconstructed" className="w-full bg-white" />
             )}
           </GlassCard>
-          <GlassCard>
-            <p className="mb-3 text-[11px] uppercase tracking-wider text-zinc-500">Dimensions</p>
+          <GlassCard className="border-0">
+            <p className="label-spaced mb-4">Dimensions</p>
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-zinc-500">
-                  <th className="pb-2 text-left font-medium">Dim</th>
-                  <th className="pb-2 text-right font-medium">Spec</th>
+                <tr className="text-[var(--color-muted)]">
+                  <th className="pb-3 text-left font-medium">Dim</th>
+                  <th className="pb-3 text-right font-medium">Spec</th>
                 </tr>
               </thead>
               <tbody>
                 {session.dimensions.map((d) => (
-                  <tr key={d.name} className="border-t border-white/5">
-                    <td className="py-2 text-zinc-300">{d.name}</td>
-                    <td className="py-2 text-right text-zinc-400">{d.spec}</td>
+                  <tr key={d.name} className="border-t border-[var(--color-border)]">
+                    <td className="py-2.5 text-[var(--color-ink)]">{d.name}</td>
+                    <td className="py-2.5 text-right text-[var(--color-muted)]">{d.spec}</td>
                   </tr>
                 ))}
               </tbody>
@@ -103,20 +151,29 @@ export function ReadScreen({ session, onUpdate, onNext, onRefine }: Props) {
       )}
 
       {read && (
-        <GlassCard className="mt-4 space-y-4">
-          <label className="block text-xs font-medium uppercase tracking-wider text-zinc-500">
-            Something wrong? Tell us what to fix
-          </label>
+        <GlassCard className="mt-8 space-y-5">
+          <label className="label-spaced block">Something wrong? Tell us what to fix</label>
           <textarea
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
             placeholder="Bore should be Ø12 not Ø10, wall is 18 mm…"
             rows={2}
-            className="w-full resize-none rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none"
+            className="w-full resize-none border border-[var(--color-border)] bg-white px-4 py-3 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-muted)]/60 outline-none focus:border-[var(--color-border-strong)]"
           />
+          {status && (
+            <p
+              className={`text-xs ${status.includes("Add feedback") ? "text-[var(--color-flag)]" : "text-[var(--color-pass)]"}`}
+            >
+              {status}
+            </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
-            <SecondaryButton onClick={handleRefine}>Regenerate read</SecondaryButton>
-            <PrimaryButton onClick={onNext}>Looks right — build CAD →</PrimaryButton>
+            <SecondaryButton onClick={handleRefine} loading={loading} disabled={!feedback.trim()}>
+              Regenerate read
+            </SecondaryButton>
+            <PrimaryButton onClick={onNext} disabled={loading}>
+              Looks right — build CAD
+            </PrimaryButton>
           </div>
         </GlassCard>
       )}

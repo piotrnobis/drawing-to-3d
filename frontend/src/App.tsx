@@ -27,7 +27,7 @@ export default function App() {
       <Background />
       <Header stage={stage} onStageClick={setStage} />
 
-      <main className="relative z-10 px-6 pb-24 pt-8">
+      <main className="relative z-10 px-6 pb-32 pt-12 md:pt-16">
         {stage === "upload" && (
           <UploadScreen session={session} onUpdate={update} onNext={() => setStage("read")} />
         )}
@@ -52,8 +52,10 @@ export default function App() {
         {stage === "export" && <ExportScreen onRestart={restart} />}
       </main>
 
-      <footer className="relative z-10 border-t border-white/5 py-6 text-center text-[11px] uppercase tracking-wider text-zinc-600">
-        DATUM · drawing → editable solid · Munich AI Hackathon
+      <footer className="relative z-10 border-t border-[var(--color-border)] py-8 text-center">
+        <p className="text-[10px] tracking-[0.25em] uppercase text-[var(--color-muted)]">
+          Datum · drawing to editable solid · Munich AI Hackathon
+        </p>
       </footer>
     </div>
   );

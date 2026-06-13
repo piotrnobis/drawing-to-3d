@@ -6,7 +6,7 @@ interface GlassCardProps {
 export function GlassCard({ children, className = "" }: GlassCardProps) {
   return (
     <div
-      className={`rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 shadow-2xl shadow-black/40 backdrop-blur-xl ${className}`}
+      className={`border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-6 md:p-8 ${className}`}
     >
       {children}
     </div>
@@ -26,15 +26,11 @@ export function PrimaryButton({ children, onClick, disabled, loading }: PrimaryB
       type="button"
       onClick={onClick}
       disabled={disabled || loading}
-      className="group relative w-full overflow-hidden rounded-xl px-6 py-3.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+      className="w-full border border-[var(--color-ink)] bg-[var(--color-ink)] px-6 py-3.5 text-sm font-medium tracking-wide text-[var(--color-surface-raised)] transition hover:bg-transparent hover:text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-35"
     >
-      <span
-        className="absolute inset-0 bg-gradient-to-r from-[#c5341f] via-[#e11d48] to-[#7c3aed] transition group-hover:opacity-90"
-        aria-hidden
-      />
-      <span className="relative flex items-center justify-center gap-2">
+      <span className="flex items-center justify-center gap-2">
         {loading && (
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
         )}
         {children}
       </span>
@@ -42,14 +38,27 @@ export function PrimaryButton({ children, onClick, disabled, loading }: PrimaryB
   );
 }
 
-export function SecondaryButton({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+interface SecondaryButtonProps {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}
+
+export function SecondaryButton({ children, onClick, disabled, loading }: SecondaryButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+      disabled={disabled || loading}
+      className="w-full border border-[var(--color-border-strong)] bg-transparent px-6 py-3 text-sm font-medium tracking-wide text-[var(--color-ink)] transition hover:border-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-35"
     >
-      {children}
+      <span className="flex items-center justify-center gap-2">
+        {loading && (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-muted)]/30 border-t-[var(--color-ink)]" />
+        )}
+        {children}
+      </span>
     </button>
   );
 }
