@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DATUM — 3D Model Viewer</title>
+  <style>
+    * { margin: 0; box-sizing: border-box; }
+    body {
+      overflow: hidden;
+      background: #0c0c10;
+      font-family: system-ui, sans-serif;
+      color: #f4f4f5;
+    }
+    #canvas { display: block; width: 100vw; height: 100vh; }
+    .hud {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: linear-gradient(to bottom, rgba(12,12,16,0.9), transparent);
+      pointer-events: none;
+    }
+    .hud * { pointer-events: auto; }
+    .brand { font-size: 13px; font-weight: 600; letter-spacing: 0.2em; }
+    .brand span { color: #c5341f; }
+    .meta { font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: 0.12em; }
+    .panel {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      padding: 14px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(12px);
+      font-size: 12px;
+      color: #a1a1aa;
+      line-height: 1.6;
+    }
+    .panel b { color: #e4e4e7; font-weight: 500; }
+    .hint {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      font-size: 11px;
+      color: #52525b;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <div class="hud">
+    <div class="brand"><span>◳</span> DATUM · 3D Preview</div>
+    <div class="meta">L-bracket · placeholder model</div>
+  </div>
+
+  <div class="panel">
+    <b>L-bracket assembly</b><br>
+    60 × 60 mm · wall 18 mm · bore Ø12.41<br>
+    <span style="color:#c5341f">FLAG: bore out of tolerance</span>
+  </div>
+
+  <p class="hint">Drag to orbit · scroll to zoom</p>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const canvas = document.getElementById("canvas");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0c0c10);
+    scene.fog = new THREE.Fog(0x0c0c10, 80, 200);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
+    camera.position.set(55, 40, 55);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.target.set(0, 15, 0);
+
+    // Lights
+    scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    const key = new THREE.DirectionalLight(0xffffff, 1.1);
+    key.position.set(40, 60, 30);
+    key.castShadow = true;
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0x7c3aed, 0.25);
+    fill.position.set(-30, 20, -20);
+    scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xc5341f, 0.15);
+    rim.position.set(0, 10, -40);
+    scene.add(rim);
+
+    // Grid
+    const grid = new THREE.GridHelper(120, 24, 0x2a2a32, 0x1a1a20);
+    grid.position.y = -0.01;
+    scene.add(grid);
+
+    // Materials
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0xd4d6cd,
+      metalness: 0.35,
+      roughness: 0.55,
+    });
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: 0xc5341f,
+      metalness: 0.5,
+      roughness: 0.4,
+      emissive: 0xc5341f,
+      emissiveIntensity: 0.08,
+    });
+
+    const part = new THREE.Group();
+
+    // L-bracket: horizontal leg 60×18×60
+    const hLeg = new THREE.Mesh(new THREE.BoxGeometry(60, 18, 60), bodyMat);
+    hLeg.position.set(0, 9, 0);
+    hLeg.castShadow = true;
+    hLeg.receiveShadow = true;
+    part.add(hLeg);
+
+    // Vertical leg 18×42×60
+    const vLeg = new THREE.Mesh(new THREE.BoxGeometry(18, 42, 60), bodyMat);
+    vLeg.position.set(-21, 30, 0);
+    vLeg.castShadow = true;
+    part.add(vLeg);
+
+    // Bore hole (slightly wrong Ø12.41 — accent ring)
+    const boreOuter = new THREE.Mesh(
+      new THREE.CylinderGeometry(6.2, 6.2, 62, 32),
+      accentMat,
+    );
+    boreOuter.rotation.x = Math.PI / 2;
+    boreOuter.position.set(-33, 30, 0);
+    part.add(boreOuter);
+
+    const boreInner = new THREE.Mesh(
+      new THREE.CylinderGeometry(6.205, 6.205, 64, 32),
+      new THREE.MeshStandardMaterial({ color: 0x0c0c10, metalness: 0, roughness: 1 }),
+    );
+    boreInner.rotation.x = Math.PI / 2;
+    boreInner.position.set(-33, 30, 0);
+    part.add(boreInner);
+
+    // Center part on grid
+    part.position.set(10, 0, 0);
+    scene.add(part);
+
+    // Edge outline for engineering look
+    const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(60, 60, 60));
+    const edgeLines = new THREE.LineSegments(
+      edges,
+      new THREE.LineBasicMaterial({ color: 0x52525b, transparent: true, opacity: 0.3 }),
+    );
+    edgeLines.position.set(-5, 30, 0);
+    scene.add(edgeLines);
+
+    function resize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+    window.addEventListener("resize", resize);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      part.rotation.y += 0.0015;
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

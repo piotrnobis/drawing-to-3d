@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DATUM CAD — L-bracket v0.3</title>
+  <style>
+    * { margin: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 12px;
+      background: #1e1e1e;
+      color: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Title bar */
+    .titlebar {
+      height: 32px;
+      background: #2d2d30;
+      border-bottom: 1px solid #111;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    .titlebar .logo { font-weight: 600; color: #569cd6; font-size: 11px; }
+    .titlebar .doc { color: #ccc; font-size: 11px; }
+    .titlebar .badge {
+      margin-left: auto;
+      background: #c5341f22;
+      color: #f48771;
+      border: 1px solid #c5341f44;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 10px;
+    }
+
+    /* Ribbon */
+    .ribbon {
+      background: #252526;
+      border-bottom: 1px solid #111;
+      flex-shrink: 0;
+    }
+    .ribbon-tabs {
+      display: flex;
+      padding: 0 8px;
+      gap: 2px;
+      border-bottom: 1px solid #111;
+    }
+    .ribbon-tab {
+      padding: 6px 14px;
+      font-size: 11px;
+      color: #999;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    .ribbon-tab.active { color: #fff; border-bottom-color: #569cd6; }
+    .ribbon-tools {
+      display: flex;
+      gap: 4px;
+      padding: 8px 12px;
+      flex-wrap: wrap;
+    }
+    .tool-group {
+      display: flex;
+      gap: 2px;
+      padding-right: 12px;
+      margin-right: 8px;
+      border-right: 1px solid #3c3c3c;
+    }
+    .tool {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      padding: 6px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      color: #ccc;
+      min-width: 52px;
+    }
+    .tool:hover { background: #3c3c3c; }
+    .tool.active { background: #094771; color: #fff; }
+    .tool .icon { font-size: 18px; line-height: 1; }
+    .tool .label { font-size: 9px; }
+
+    /* Main layout */
+    .workspace {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* Left browser */
+    .browser {
+      width: 220px;
+      background: #252526;
+      border-right: 1px solid #111;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .panel-hd {
+      padding: 8px 12px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #888;
+      border-bottom: 1px solid #333;
+    }
+    .tree { flex: 1; overflow-y: auto; padding: 6px 0; }
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px 4px 20px;
+      cursor: pointer;
+      color: #ccc;
+      font-size: 11px;
+    }
+    .tree-item:hover { background: #2a2d2e; }
+    .tree-item.selected { background: #094771; color: #fff; }
+    .tree-item.flag { color: #f48771; }
+    .tree-item .indent { margin-left: 16px; }
+    .tree-item .indent2 { margin-left: 32px; }
+
+    /* Viewport */
+    .viewport-wrap {
+      flex: 1;
+      position: relative;
+      background: #1a1a2e;
+    }
+    #canvas { display: block; width: 100%; height: 100%; }
+    .view-cube {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 64px;
+      height: 64px;
+      background: #2d2d30;
+      border: 1px solid #555;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      color: #888;
+      text-align: center;
+      line-height: 1.3;
+    }
+    .viewport-toolbar {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 4px;
+      background: #2d2d30ee;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 4px;
+    }
+    .vp-btn {
+      padding: 4px 10px;
+      font-size: 10px;
+      color: #aaa;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .vp-btn:hover, .vp-btn.active { background: #094771; color: #fff; }
+
+    /* Right properties */
+    .properties {
+      width: 240px;
+      background: #252526;
+      border-left: 1px solid #111;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .prop-section { padding: 10px 12px; border-bottom: 1px solid #333; }
+    .prop-section h4 {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #888;
+      margin-bottom: 8px;
+    }
+    .prop-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      font-size: 11px;
+    }
+    .prop-row label { color: #aaa; }
+    .prop-row input {
+      width: 80px;
+      background: #3c3c3c;
+      border: 1px solid #555;
+      border-radius: 3px;
+      color: #fff;
+      padding: 3px 6px;
+      font-size: 11px;
+      text-align: right;
+    }
+    .prop-row input.flag {
+      border-color: #c5341f;
+      background: #3c2020;
+      color: #f48771;
+    }
+    .prop-row .unit { color: #666; font-size: 10px; margin-left: 4px; }
+    .apply-btn {
+      margin: 12px;
+      padding: 8px;
+      background: #0e639c;
+      border: none;
+      border-radius: 3px;
+      color: #fff;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .apply-btn:hover { background: #1177bb; }
+
+    /* Status bar */
+    .statusbar {
+      height: 24px;
+      background: #007acc;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 11px;
+      color: #fff;
+      gap: 20px;
+      flex-shrink: 0;
+    }
+    .statusbar .sep { opacity: 0.4; }
+  </style>
+</head>
+<body>
+
+  <div class="titlebar">
+    <span class="logo">⬡ DATUM CAD</span>
+    <span class="doc">L-bracket_v0.3.step — linked from verify pipeline</span>
+    <span class="badge">⚠ Bore Ø12.41 — out of spec</span>
+  </div>
+
+  <div class="ribbon">
+    <div class="ribbon-tabs">
+      <div class="ribbon-tab active">Solid</div>
+      <div class="ribbon-tab">Sketch</div>
+      <div class="ribbon-tab">Surface</div>
+      <div class="ribbon-tab">Inspect</div>
+    </div>
+    <div class="ribbon-tools">
+      <div class="tool-group">
+        <div class="tool"><span class="icon">▭</span><span class="label">Extrude</span></div>
+        <div class="tool"><span class="icon">◯</span><span class="label">Revolve</span></div>
+        <div class="tool active"><span class="icon">◎</span><span class="label">Hole</span></div>
+        <div class="tool"><span class="icon">⌐</span><span class="label">Fillet</span></div>
+      </div>
+      <div class="tool-group">
+        <div class="tool"><span class="icon">⊕</span><span class="label">Measure</span></div>
+        <div class="tool"><span class="icon">§</span><span class="label">Section</span></div>
+      </div>
+      <div class="tool-group">
+        <div class="tool"><span class="icon">↺</span><span class="label">Undo</span></div>
+        <div class="tool"><span class="icon">↻</span><span class="label">Redo</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="workspace">
+    <!-- Feature tree -->
+    <div class="browser">
+      <div class="panel-hd">Browser</div>
+      <div class="tree">
+        <div class="tree-item selected">📁 L-bracket (root)</div>
+        <div class="tree-item indent">▭ Base extrude · 60×18×60</div>
+        <div class="tree-item indent">▭ Vertical leg · 18×42×60</div>
+        <div class="tree-item indent flag">◎ Hole · Ø12.41 ⚠</div>
+        <div class="tree-item indent2">↳ Depth: through</div>
+        <div class="tree-item indent2">↳ Position: (-33, 30)</div>
+        <div class="tree-item">📐 Origin planes</div>
+        <div class="tree-item indent">XY · XZ · YZ</div>
+      </div>
+    </div>
+
+    <!-- 3D viewport -->
+    <div class="viewport-wrap">
+      <canvas id="canvas"></canvas>
+      <div class="view-cube">TOP<br>FRONT<br>RIGHT</div>
+      <div class="viewport-toolbar">
+        <div class="vp-btn active">Shaded</div>
+        <div class="vp-btn">Wireframe</div>
+        <div class="vp-btn">Orthographic</div>
+        <div class="vp-btn">Fit</div>
+      </div>
+    </div>
+
+    <!-- Properties -->
+    <div class="properties">
+      <div class="panel-hd">Properties — Hole1</div>
+      <div class="prop-section">
+        <h4>Dimensions</h4>
+        <div class="prop-row">
+          <label>Overall height</label>
+          <span><input value="59.98" /> <span class="unit">mm</span></span>
+        </div>
+        <div class="prop-row">
+          <label>Overall width</label>
+          <span><input value="60.01" /> <span class="unit">mm</span></span>
+        </div>
+        <div class="prop-row">
+          <label>Wall thickness</label>
+          <span><input value="18.00" /> <span class="unit">mm</span></span>
+        </div>
+        <div class="prop-row">
+          <label>Bore diameter</label>
+          <span><input class="flag" value="12.41" id="bore-input" /> <span class="unit">mm</span></span>
+        </div>
+        <p style="font-size:10px;color:#f48771;margin-top:6px">Spec: Ø12.00 — edit to fix FLAG</p>
+      </div>
+      <div class="prop-section">
+        <h4>Hole feature</h4>
+        <div class="prop-row"><label>Type</label><span style="color:#ccc">Through</span></div>
+        <div class="prop-row"><label>Depth</label><span style="color:#ccc">60 mm</span></div>
+        <div class="prop-row"><label>Position X</label><span style="color:#ccc">-33 mm</span></div>
+        <div class="prop-row"><label>Position Y</label><span style="color:#ccc">30 mm</span></div>
+      </div>
+      <button class="apply-btn" onclick="applyFix()">Apply & re-verify</button>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span>Ready</span>
+    <span class="sep">|</span>
+    <span>Units: mm</span>
+    <span class="sep">|</span>
+    <span>Projection: First-angle</span>
+    <span class="sep">|</span>
+    <span id="status-msg">Select a feature to edit</span>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const wrap = document.querySelector(".viewport-wrap");
+    const canvas = document.getElementById("canvas");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
+    camera.position.set(50, 38, 50);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.target.set(0, 15, 0);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const key = new THREE.DirectionalLight(0xffffff, 1.0);
+    key.position.set(40, 60, 30);
+    scene.add(key);
+
+    const grid = new THREE.GridHelper(100, 20, 0x3a3a5c, 0x2a2a40);
+    scene.add(grid);
+
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8a9bb0, metalness: 0.4, roughness: 0.5 });
+    const flagMat = new THREE.MeshStandardMaterial({
+      color: 0xc5341f, metalness: 0.5, roughness: 0.35,
+      emissive: 0xc5341f, emissiveIntensity: 0.12,
+    });
+
+    const part = new THREE.Group();
+    const hLeg = new THREE.Mesh(new THREE.BoxGeometry(60, 18, 60), bodyMat);
+    hLeg.position.set(0, 9, 0);
+    part.add(hLeg);
+    const vLeg = new THREE.Mesh(new THREE.BoxGeometry(18, 42, 60), bodyMat);
+    vLeg.position.set(-21, 30, 0);
+    part.add(vLeg);
+
+    let boreRadius = 6.205;
+    const boreGroup = new THREE.Group();
+    function rebuildBore(r) {
+      boreGroup.clear();
+      const outer = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 62, 32), flagMat);
+      outer.rotation.x = Math.PI / 2;
+      boreGroup.add(outer);
+      const inner = new THREE.Mesh(
+        new THREE.CylinderGeometry(r + 0.01, r + 0.01, 64, 32),
+        new THREE.MeshStandardMaterial({ color: 0x1a1a2e }),
+      );
+      inner.rotation.x = Math.PI / 2;
+      boreGroup.add(inner);
+    }
+    rebuildBore(boreRadius);
+    boreGroup.position.set(-33, 30, 0);
+    part.add(boreGroup);
+    part.position.set(10, 0, 0);
+    scene.add(part);
+
+    function resize() {
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.applyFix = function () {
+      const val = parseFloat(document.getElementById("bore-input").value);
+      if (!isNaN(val)) {
+        boreRadius = val / 2;
+        rebuildBore(boreRadius);
+        const input = document.getElementById("bore-input");
+        if (Math.abs(val - 12.0) <= 0.05) {
+          input.classList.remove("flag");
+          document.getElementById("status-msg").textContent = "✓ Bore fixed — ready to re-verify";
+        } else {
+          input.classList.add("flag");
+          document.getElementById("status-msg").textContent = "Bore still out of spec (target Ø12.00)";
+        }
+      }
+    };
+  </script>
+</body>
+</html>
