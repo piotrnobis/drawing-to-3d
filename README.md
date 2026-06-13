@@ -45,9 +45,17 @@ We deliberately use **one** model provider and a **minimal** dependency set (sma
 │   ├── AGENTS.md          # ✅ rules for Claude Code / AI agents working in this repo
 │   └── SECURITY.md        # ✅ threat model, secrets, Aikido steps
 ├── backend/               # FastAPI + pipeline modules
-│   └── llm/
-│       └── gemini.py      # ✅ minimal Gemini helper — ask(prompt, images)
-├── samples/               # (planned) sample drawings for testing
+│   ├── llm/
+│   │   └── gemini.py      # ✅ Gemini helpers — ask / ask_code (JSON) / Conversation
+│   ├── cad/               # ✅ sandboxed CadQuery runner + exporter (debug render)
+│   │   ├── render.py      #    render_file / render_code -> STEP / STL / SVG / HTML
+│   │   └── _harness.py    #    runs the untrusted script inside the subprocess
+│   └── agent/             # ✅ drawing -> CadQuery -> render, self-refining loop
+│       ├── agent.py       #    CadAgent: generate, render, refine on errors
+│       ├── prompts.py     #    system prompt + refine prompt
+│       └── cadquery_reference.md  # idiomatic CadQuery examples (model context)
+├── renders/               # (gitignored) debug render outputs
+├── samples/               # sample drawings + CadQuery fixtures
 └── frontend/              # (planned) React UI
 ```
 
@@ -63,16 +71,30 @@ You need a Google AI Studio API key (https://aistudio.google.com/apikey).
 # 1. clone + enter
 git clone <repo> && cd drawing-to-3d
 
-# 2. conda env
+# 2. conda env (python 3.12 + CadQuery), then install the package
 conda env create -f environment.yml
 conda activate drawing-to-3d
+pip install -e .[dev]
 
 # 3. secrets — copy the example and paste your AI Studio key
 cp .env.example .env
 #   then edit .env:  GEMINI_API_KEY=your_key_here
 ```
 
-Backend and frontend run instructions are added here as those parts are built.
+## Run
+
+```bash
+# drawing -> CadQuery -> rendered model (STEP/STL/SVG + HTML viewer in renders/)
+python -m backend.agent samples/orthographic_3/cad-drawing.png
+
+# render a CadQuery script directly
+python -m backend.cad samples/cad/bracket.py
+
+# Gemini smoke test
+python -m backend.llm
+```
+
+Frontend run instructions are added here as that part is built.
 
 ---
 

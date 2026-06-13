@@ -1,7 +1,17 @@
 .env
 
+# Debug render outputs + scratch
+renders/
+generated.*
+
 # Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/

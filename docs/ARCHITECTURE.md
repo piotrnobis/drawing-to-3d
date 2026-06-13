@@ -17,6 +17,25 @@ So verification is not a nice-to-have; it is the core of the project.
 
 ---
 
+## Implementation status (where the code is today)
+
+The repo currently implements a working slice of the loop, not all 10 stages:
+
+- **`backend/agent` (`CadAgent`)** covers **generate (4)** + **repair (5)** today: it
+  prompts Gemini (with a CadQuery few-shot reference) for code, runs it, and on
+  failure feeds the traceback back into the *same* `Conversation` and retries.
+- **`backend/cad`** covers part of **export (9)**: the sandboxed runner writes
+  STEP + STL + SVG and a self-contained three.js HTML viewer. `RenderResult`
+  (`ok`, `outputs`, `stdout`, `stderr`) is today's stand-in for the **runner-result
+  contract** below — when we formalize it, `ok`→`success`, `outputs["step"]`→
+  `step_path`, a future `outputs["gltf"]`→`gltf_path`, `stderr`→`error_trace`,
+  and `measurements` get added by the validate stage.
+- **`backend/llm`** is the Gemini access layer used by the agent.
+
+**Not built yet:** extract → `DrawingSpec` (2), review (3), project/compare/refine
+(6–8), the dimensional **validation gate**, glTF export, FastAPI, and the frontend.
+These are the open lanes to pick up.
+
 ## The pipeline (10 stages, 4 phases)
 
 **Phase A — Read**

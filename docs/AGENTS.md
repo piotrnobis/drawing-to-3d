@@ -17,12 +17,20 @@ drawing-to-3d reconstructs an **editable parametric CAD model (STEP)** from a te
 
 - **Gemini SDK:** use the unified **`google-genai`** SDK — `from google import genai`. **Do NOT** use the deprecated `google-generativeai` package. No `genai.GenerativeModel(...)`, no `genai.configure(...)`.
 - **Model string:** `gemini-3.5-flash`.
-- **Auth:** `genai.Client()` reads `GEMINI_API_KEY` from the environment (an AI Studio key). Never pass a key literal.
+- **Auth:** `genai.Client(api_key=os.environ["GEMINI_API_KEY"])` — read the AI Studio key from the env and pass it explicitly. The SDK does **not** auto-read `GEMINI_API_KEY` (only `GOOGLE_API_KEY`), so the explicit `api_key=` is required. Never hardcode a key literal. `.env` is loaded via `python-dotenv`.
 - **Images:** `types.Part.from_bytes(data=..., mime_type=...)` inside the `contents` list.
 - **CAD:** CadQuery (OpenCASCADE) for B-rep, STEP export, HLR projection, dimension queries.
 - **Backend (when built):** FastAPI. **Frontend (when built):** React + Vite + TypeScript + Tailwind + react-three-fiber.
-- **Python:** 3.11+, type hints, `pydantic` for data models. Format with ruff + black.
+- **Python:** 3.12 (via conda — CadQuery needs it), type hints, `pydantic` for the shared data contracts (`DrawingSpec`, `PipelineResult`). Format with ruff + black; config in `pyproject.toml`.
 - **TS:** strict mode, eslint + prettier.
+
+## Module map and how to run
+
+- `backend/llm/` — Gemini access: `ask`, `ask_code` / `ask_code_json` (structured JSON → `CodeResult`), `Conversation` (stateful chat with `system_instruction`). Smoke test: `python -m backend.llm`.
+- `backend/cad/` — sandboxed CadQuery runner. `render_file` / `render_code` run an **untrusted** script in a subprocess and export STEP/STL/SVG + an HTML viewer. CLI: `python -m backend.cad samples/cad/bracket.py`.
+- `backend/agent/` — `CadAgent`: drawing → CadQuery → render, refining within one `Conversation`. System prompt + `cadquery_reference.md` few-shot live here. CLI: `python -m backend.agent samples/orthographic_3/cad-drawing.png`.
+
+Setup: `conda env create -f environment.yml && conda activate drawing-to-3d && pip install -e .[dev]`.
 
 ## Security rules you MUST follow
 
@@ -36,7 +44,9 @@ See `SECURITY.md` for the full threat model.
 ## How to verify your change
 
 - After any change, run the relevant smoke test or `pytest`, and state how you verified it.
-- For the Gemini helper: `python gemini.py` should return text for a plain prompt and for an image+prompt.
+- For the Gemini helper: `python -m backend.llm` should return text for a plain prompt.
+- For the CAD runner: `python -m backend.cad samples/cad/bracket.py` should write `renders/bracket.{step,stl,svg,html}`.
+- For the agent: `python -m backend.agent samples/orthographic_3/cad-drawing.png`.
 - Don't claim something works without running it.
 
 ## What NOT to do

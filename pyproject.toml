@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drawing-to-3d"
+version = "0.1.0"
+description = "Reconstruct an editable parametric CAD (STEP) model from a technical engineering drawing."
+requires-python = ">=3.12"
+# NOTE: CadQuery is intentionally NOT listed here — it ships native OpenCASCADE
+# libraries and is installed via conda (see environment.yml). These are the
+# pure-pip deps; keep them pinned in sync with environment.yml.
+dependencies = [
+    "google-genai==1.16.1",
+    "python-dotenv==1.0.1",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "black", "mypy"]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.setuptools.package-data]
+"backend.agent" = ["*.md"]  # ship cadquery_reference.md with the package
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true  # cadquery / google.genai ship limited stubs

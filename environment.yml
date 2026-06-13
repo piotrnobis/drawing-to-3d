@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.12
+  - cadquery
   - pip
   - pip:
       - google-genai==1.16.1
