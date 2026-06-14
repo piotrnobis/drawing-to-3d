@@ -26,11 +26,17 @@ drawing-to-3d reconstructs an **editable parametric CAD model (STEP)** from a te
 
 ## Module map and how to run
 
-- `backend/llm/` — Gemini access: `ask`, `ask_code` / `ask_code_json` (structured JSON → `CodeResult`), `Conversation` (stateful chat with `system_instruction`). Smoke test: `python -m backend.llm`.
-- `backend/cad/` — sandboxed CadQuery runner. `render_file` / `render_code` run an **untrusted** script in a subprocess and export STEP/STL/SVG + an HTML viewer. CLI: `python -m backend.cad samples/cad/bracket.py`.
-- `backend/agent/` — `CadAgent`: drawing → CadQuery → render, refining within one `Conversation`. System prompt + `cadquery_reference.md` few-shot live here. CLI: `python -m backend.agent samples/orthographic_3/cad-drawing.png`.
+- `backend/llm/` — Gemini access: `ask`, `ask_code` / `ask_code_json` (structured JSON → `CodeResult`), `Conversation` (stateful chat with `system_instruction`, structured per-turn schemas, transient-retry, `max_output_tokens`, `media_resolution`, thinking-budget). Smoke test: `python -m backend.llm`.
+- `backend/cad/` — sandboxed CadQuery runner. `render_file` / `render_code` run an **untrusted** script in a subprocess and export STEP/STL/SVG + HTML viewer + 4 PNG views, and **measure the B-rep** (bbox, per-feature hole patterns, solid count) → `RenderResult`. `_harness.py` is the only place code is exec'd (in the child). CLI: `python -m backend.cad samples/cad/bracket.py`.
+- `backend/agent/` — the loop: `agent.py` (`CadAgent`: analyze → generate → run+repair → render+measure → verify (shape critique + dimension gate) → refine, with elitism/keep-best); `analysis.py` (drawing → `Analysis`); `gate.py` (dimensional gate); `models.py` (pydantic `Analysis`/`Dimension`); `prompts.py` + `cadquery_reference.md` (**the CadQuery manual** — tune prompts here). CLI: `python -m backend.agent <drawing.png> [--thinking minimal|low|medium|high|dynamic]`.
 
-Setup: `conda env create -f environment.yml && conda activate drawing-to-3d && pip install -e .[dev]`.
+Setup: `conda env create -f environment.yml && conda activate drawing-to-3d && pip install -e .[dev]`. Each agent run writes a versioned `renders/run_<ts>/` (gitignored) with per-iteration artifacts + `trace.md` (read this to debug).
+
+## Conventions when extending
+- **Tune model behaviour in `cadquery_reference.md` (the manual) and `prompts.py`**, not by hardcoding part logic. New recurring failures → add a pitfall to the manual.
+- **New dimension checks:** add a `kind` to `models.py` (`DimensionKind`), measure it in `_harness.py`, match it in `gate.py`. Keep the gate honest — unmeasurable kinds stay `unmeasured`, never a false pass.
+- **Verification is split by capability:** the vision critique judges *shape* (presence/topology/openings); the gate judges *exact numbers*. Don't make the critique police sizes.
+- **Partner tech (required):** lean is **Tavily** (web retrieval in the analyze stage); Pioneer fine-tuning analyzed but unlikely. See `ARCHITECTURE.md`.
 
 ## Security rules you MUST follow
 

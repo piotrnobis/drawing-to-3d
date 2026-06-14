@@ -19,22 +19,43 @@ So verification is not a nice-to-have; it is the core of the project.
 
 ## Implementation status (where the code is today)
 
-The repo currently implements a working slice of the loop, not all 10 stages:
+The backend runs the **full loop end-to-end** (verified on a multi-flange manifold,
+sometimes first-try). It's a deliberately **lighter** realization of the 10-stage target.
 
-- **`backend/agent` (`CadAgent`)** covers **generate (4)** + **repair (5)** today: it
-  prompts Gemini (with a CadQuery few-shot reference) for code, runs it, and on
-  failure feeds the traceback back into the *same* `Conversation` and retries.
-- **`backend/cad`** covers part of **export (9)**: the sandboxed runner writes
-  STEP + STL + SVG and a self-contained three.js HTML viewer. `RenderResult`
-  (`ok`, `outputs`, `stdout`, `stderr`) is today's stand-in for the **runner-result
-  contract** below — when we formalize it, `ok`→`success`, `outputs["step"]`→
-  `step_path`, a future `outputs["gltf"]`→`gltf_path`, `stderr`→`error_trace`,
-  and `measurements` get added by the validate stage.
-- **`backend/llm`** is the Gemini access layer used by the agent.
+- **`backend/agent` (`CadAgent`)** orchestrates the whole loop in ONE Gemini
+  `Conversation`: **analyze** (drawing → a structured `Analysis` with a dimension
+  table) → **generate** (CadQuery, grounded by the analysis + an embedded CadQuery
+  **manual**, `cadquery_reference.md`) → **run + repair** (sandboxed; code errors fed
+  back) → **render + measure** → **verify** (two signals, below) → **refine**, bounded,
+  with **elitism / keep-best**.
+- **`backend/cad`** is the sandboxed runner: executes untrusted code in a subprocess;
+  exports STEP/STL/SVG + an HTML viewer; renders 4 PNG views (front/top/side/iso); and
+  **measures the B-rep** — bounding box, per-feature **hole patterns** (count, pitch,
+  bolt-circle PCD), and a **solid count** (connectivity).
+- **`backend/agent/gate.py`** = the **dimensional gate** (measured B-rep vs the analysis
+  dimension table). `backend/agent/models.py` holds the pydantic `Analysis`/`Dimension`.
+- **`backend/llm`** = Gemini access (structured output, transient-retry, `max_output_tokens`,
+  `media_resolution=HIGH`, thinking-budget knob).
 
-**Not built yet:** extract → `DrawingSpec` (2), review (3), project/compare/refine
-(6–8), the dimensional **validation gate**, glTF export, FastAPI, and the frontend.
-These are the open lanes to pick up.
+**How it differs from the 10-stage target (on purpose):**
+- We extract a **dimension table**, not a full `DrawingSpec` with view contours (stage 2).
+- The **shape** signal today is a **VLM critique** (show Gemini the 4 rendered views beside
+  the drawing), NOT the project-back HLR/IoU overlay (stages 6–7). That overlay is the
+  planned upgrade — `projection.py` (repo root) is a starting point but uses `OCC.Core`+
+  `matplotlib`; port it to `OCP` first.
+- The **size** signal (the dimensional gate, incl. per-feature holes) **is built** — the differentiator.
+
+**Not built yet:** project-back/IoU overlay, human review checkpoint (3), glTF export,
+FastAPI + frontend wiring, and more measured dimension kinds (thickness, feature spacing,
+bore through-ness/location).
+
+## Partner technology (required)
+The hackathon requires ≥1 partner technology. Current lean: **Tavily** (web retrieval) at
+the **analyze** stage — fetch standard-part dimensions (flange/bolt/thread/pipe tables) to
+fill or sanity-check the dimension table, and retrieve CadQuery examples to ground
+generation. **Pioneer/Fastino** fine-tuning was analyzed but is unlikely (the bottleneck is
+multimodal reasoning, which it can't fine-tune); a text→CadQuery model after the analysis
+stage would be the only sound use. Use Tavily unless we pursue fine-tuning.
 
 ## The pipeline (10 stages, 4 phases)
 

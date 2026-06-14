@@ -14,6 +14,13 @@ The pipeline runs **CadQuery code produced by an LLM**. That is **arbitrary code
 - write only to a **scratch temp directory**,
 - have **no network access** where feasible (a container is the stronger option; note it if not used).
 
+**As-built status** (`backend/cad/render.py` → `_harness.py`):
+- ✅ Separate **subprocess**; code is exec'd only inside `_harness.py`, never in the app process.
+- ✅ **Hard timeout** (`DEFAULT_TIMEOUT`, 60s); a hang is killed and returned as a failed render, not a crash.
+- ✅ **No secret inheritance:** `_scrubbed_env()` strips every env var whose name matches `KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL/GEMINI` — so the child cannot read `GEMINI_API_KEY` (verified by test). Note: it's a **denylist**, not a fully clean env (PATH/SYSTEMROOT are kept so CadQuery's native libs load).
+- ⚠️ **Output dir:** writes to a project dir (`renders/run_<ts>/`, git-ignored), not an OS temp dir. Fine for the hackathon; tighten to a temp/scratch dir if hardening.
+- ⚠️ **Network:** the subprocess is **not** network-restricted yet (no container/namespace isolation). Known gap — call it out for Aikido; containerize if time allows.
+
 ### 2. Secrets
 - API keys live in `.env` only. `.env` is git-ignored. `.env.example` lists variable names with no values.
 - Never hardcode, print, or log keys. If a key is ever committed, **rotate it immediately** (revoke in AI Studio, issue a new one).
