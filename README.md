@@ -47,13 +47,16 @@ We deliberately use **one** model provider and a **minimal** dependency set (sma
 ├── backend/               # FastAPI + pipeline modules
 │   ├── llm/
 │   │   └── gemini.py      # ✅ Gemini helpers — ask / ask_code (JSON) / Conversation
-│   ├── cad/               # ✅ sandboxed CadQuery runner + exporter (debug render)
-│   │   ├── render.py      #    render_file / render_code -> STEP / STL / SVG / HTML
+│   ├── cad/               # ✅ sandboxed CadQuery runner + measurement + render
+│   │   ├── render.py      #    render_file/_code -> STEP/STL/SVG/HTML + views + measurements
 │   │   └── _harness.py    #    runs the untrusted script inside the subprocess
-│   └── agent/             # ✅ drawing -> CadQuery -> render, self-refining loop
-│       ├── agent.py       #    CadAgent: generate, render, refine on errors
-│       ├── prompts.py     #    system prompt + refine prompt
-│       └── cadquery_reference.md  # idiomatic CadQuery examples (model context)
+│   └── agent/             # ✅ analyze -> generate -> render -> verify (shape+size) -> refine
+│       ├── agent.py       #    CadAgent: the loop, with elitism/keep-best
+│       ├── analysis.py    #    drawing -> structured Analysis + dimension table
+│       ├── gate.py        #    dimensional gate: measured B-rep vs dimension table
+│       ├── models.py      #    pydantic Analysis / Dimension
+│       ├── prompts.py     #    system prompt + analysis/critique/refine prompts
+│       └── cadquery_reference.md  # the CadQuery manual (model context)
 ├── renders/               # (gitignored) debug render outputs
 ├── samples/               # sample drawings + CadQuery fixtures
 └── frontend/              # (planned) React UI

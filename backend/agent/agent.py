@@ -23,6 +23,9 @@ from pathlib import Path
 
 from google.genai import types
 
+from backend.agent.analysis import analyze
+from backend.agent.gate import GateResult, evaluate
+from backend.agent.models import Analysis
 from backend.agent.prompts import (
     REFINE_PROMPT,
     SYSTEM_PROMPT,
@@ -64,6 +67,18 @@ class CritiqueResult:
 
 
 @dataclass
+class _Candidate:
+    """One rendered attempt, kept so we can return the best (elitism)."""
+
+    score: tuple
+    script: Path
+    render: RenderResult
+    critique: CritiqueResult
+    gate: GateResult
+    refine: int
+
+
+@dataclass
 class AgentRun:
     ok: bool  # a model rendered successfully
     verified: bool  # passed the visual critique
@@ -73,16 +88,24 @@ class AgentRun:
     refines: int = 0
     run_dir: Path | None = None
     trace_path: Path | None = None
+    analysis: Analysis | None = None
+    gate: GateResult | None = None
 
     def __bool__(self) -> bool:
         return self.ok
 
 
 class CadAgent:
-    def __init__(self, model: str | None = None, max_repair: int = 3, max_refine: int = 2):
+    def __init__(
+        self,
+        model: str | None = None,
+        max_repair: int = 3,
+        max_refine: int = 2,
+        thinking: str | int | None = None,
+    ):
         self.max_repair = max_repair  # code-error retries per generation
         self.max_refine = max_refine  # visual-mismatch retries
-        kwargs = {"system_instruction": SYSTEM_PROMPT}
+        kwargs = {"system_instruction": SYSTEM_PROMPT, "thinking": thinking}
         if model:
             kwargs["model"] = model
         self.chat = Conversation(**kwargs)
@@ -95,11 +118,15 @@ class CadAgent:
 
         Writes all artifacts into a fresh `<out_dir>/run_<timestamp>/` directory.
         """
+        if not Path(image_path).exists():
+            raise FileNotFoundError(f"drawing not found: {image_path}")
         self._run_dir = self._make_run_dir(Path(out_dir))
         self._trace = []
         self._trace_path = self._run_dir / "trace.md"
         self._record(f"# Agent trace — {image_path}\n")
         print(f"run dir -> {self._run_dir}")
+
+        analysis = self._analyze(image_path)
 
         code = self.chat.ask_code(USER_PROMPT, images=image_path)
         self._record_generation("Initial generation", code)
@@ -107,29 +134,57 @@ class CadAgent:
         script, render = self._render_with_repair(code, "iter0")
         if not render.ok:
             self._record("\n**Stopped: could not produce a rendering.**")
-            return self._result(False, False, script, render)
+            return self._result(False, False, script, render, analysis=analysis)
 
-        critique: CritiqueResult | None = None
+        best: _Candidate | None = None
         for refine in range(self.max_refine + 1):
             critique = self._critique(image_path, render)
-            self._record(
-                f"\n## Critique {refine} — match: {critique.matches}\n\n"
-                f"{critique.issues or '(no issues reported)'}"
-            )
-            print(f"refine {refine}: visual match = {critique.matches}")
-            if critique.issues and not critique.matches:
-                print(f"  issues: {critique.issues}")
-            if critique.matches or refine == self.max_refine:
-                break
-            code = self.chat.ask_code(VISUAL_REFINE_PROMPT.format(issues=critique.issues))
-            self._record_generation(f"Visual-refine generation {refine + 1}", code)
-            script, render = self._render_with_repair(code, f"iter{refine + 1}")
-            if not render.ok:  # a refine broke the script and couldn't be repaired
-                self._record("\n**Stopped: a refine broke the script.**")
-                return self._result(False, False, script, render, critique, refine + 1)
+            gate = evaluate(analysis.dimensions, render.measurements) if analysis else GateResult()
+            score = self._score(critique, gate, render)
+            if best is None or score > best.score:  # elitism: keep the best candidate
+                best = _Candidate(score, script, render, critique, gate, refine)
 
-        self._finalize(script, render)
-        return self._result(True, bool(critique and critique.matches), script, render, critique)
+            self._record(
+                f"\n## Verify {refine} — visual: {critique.matches}, "
+                f"dimension gate: {'PASS' if gate.passed else 'FAIL'}\n\n"
+                f"{gate.table()}\n\n"
+                f"**Issues:** {critique.issues or '(none)'}\n{gate.failures()}"
+            )
+            print(
+                f"refine {refine}: visual={critique.matches} "
+                f"gate={'pass' if gate.passed else 'fail'} ({gate.n_pass} dims ok)"
+            )
+            if critique.issues and not critique.matches:
+                print(f"  visual issues: {critique.issues}")
+            if not gate.passed:
+                print(f"  dimension failures:\n{gate.failures()}")
+
+            if (critique.matches and gate.passed) or refine == self.max_refine:
+                break
+            feedback = self._merge_feedback(critique.issues, gate.failures())
+            code = self.chat.ask_code(VISUAL_REFINE_PROMPT.format(issues=feedback))
+            self._record_generation(f"Refine generation {refine + 1}", code)
+            new_script, new_render = self._render_with_repair(code, f"iter{refine + 1}")
+            if not new_render.ok:  # a refine broke the script; keep the best earlier one
+                self._record("\n**A refine failed to render; keeping the best earlier candidate.**")
+                print("  refine broke; keeping best so far", file=sys.stderr)
+                break
+            script, render = new_script, new_render
+
+        verified = bool(best.critique.matches and best.gate.passed)
+        self._finalize(best.script, best.render)
+        self._record(f"\n## Selected best: {best.script.stem} (verified={verified})")
+        print(f"selected best: {best.script.stem} (verified={verified})")
+        return self._result(
+            True,
+            verified,
+            best.script,
+            best.render,
+            best.critique,
+            best.refine,
+            analysis,
+            best.gate,
+        )
 
     def _render_with_repair(self, code: CodeResult, label: str) -> tuple[Path, RenderResult]:
         """Render `code`, feeding code errors back until it runs or attempts run out.
@@ -178,6 +233,54 @@ class CadAgent:
             issues = connectivity + (f"\n{issues}" if issues else "")
         return CritiqueResult(matches=bool(data.get("matches")) and not connectivity, issues=issues)
 
+    def _analyze(self, image_path: str | Path) -> Analysis | None:
+        """Reason about the drawing first; save the analysis + dimension table."""
+        try:
+            analysis = analyze(self.chat, image_path)
+        except Exception as exc:  # noqa: BLE001 — analysis is best-effort, never fatal
+            self._record(f"\n## Analysis failed\n\n{type(exc).__name__}: {exc}")
+            print(f"analysis failed ({type(exc).__name__}); continuing without it", file=sys.stderr)
+            return None
+
+        (self._run_dir / "analysis.json").write_text(
+            analysis.model_dump_json(indent=2), encoding="utf-8"
+        )
+        dims = "\n".join(
+            f"- {d.label}: {d.value:g} ±{d.tolerance:g} mm ({d.kind})" for d in analysis.dimensions
+        )
+        self._record(
+            f"\n## Analysis\n\n**Summary:** {analysis.summary}\n\n"
+            f"**Guess:** {analysis.guess}\n\n**Dimensions:**\n{dims}"
+        )
+        print(f"analysis: {analysis.guess[:120]} | {len(analysis.dimensions)} dimensions")
+        return analysis
+
+    @staticmethod
+    def _score(critique: CritiqueResult, gate: GateResult, render: RenderResult) -> tuple:
+        """Rank a candidate for elitism (higher is better, compared lexicographically).
+
+        A fully-verified model wins; then a single connected solid (a disconnected
+        part is fundamentally broken); then more passing dimensions; then visual match.
+        """
+        connected = render.measurements.get("solid_count", 1) == 1
+        return (
+            int(critique.matches and gate.passed),
+            int(connected),
+            gate.n_pass,
+            int(critique.matches),
+        )
+
+    @staticmethod
+    def _merge_feedback(visual: str, dim_failures: str) -> str:
+        parts = []
+        if visual:
+            parts.append(visual)
+        if dim_failures:
+            parts.append(
+                "Dimension mismatches (the model's measured size is wrong):\n" + dim_failures
+            )
+        return "\n\n".join(parts) if parts else "(no specific issues; improve overall fidelity)"
+
     # --- outputs / tracing -------------------------------------------------
 
     @staticmethod
@@ -202,9 +305,20 @@ class CadAgent:
             final_name = "final" + path.name[len(stem) :]  # "iter2.front.png" -> "final.front.png"
             shutil.copy2(path, self._run_dir / final_name)
 
-    def _result(self, ok, verified, script, render, critique=None, refines=0) -> AgentRun:
+    def _result(
+        self, ok, verified, script, render, critique=None, refines=0, analysis=None, gate=None
+    ) -> AgentRun:
         return AgentRun(
-            ok, verified, script, render, critique, refines, self._run_dir, self._trace_path
+            ok,
+            verified,
+            script,
+            render,
+            critique,
+            refines,
+            self._run_dir,
+            self._trace_path,
+            analysis,
+            gate,
         )
 
     def _record(self, section: str) -> None:
