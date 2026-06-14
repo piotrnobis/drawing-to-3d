@@ -41,3 +41,21 @@ class Analysis(BaseModel):
     guess: str = Field(description="What the part most likely is and its function.")
     per_view: list[str] = Field(description="A detailed description of each view in the drawing.")
     dimensions: list[Dimension] = Field(description="Every dimension callout shown in the drawing.")
+
+
+class BuildStage(BaseModel):
+    """One feature in the ordered staged-construction plan (built + verified alone)."""
+
+    name: str = Field(description="Short feature name, e.g. 'base flange' or 'central bore'.")
+    kind: Literal["solid", "cut"] = Field(
+        description="'solid' adds material (unioned); 'cut' removes material."
+    )
+    instructions: str = Field(
+        description="Concrete build instructions for this feature: what, where, with dimensions."
+    )
+
+
+class BuildPlan(BaseModel):
+    stages: list[BuildStage] = Field(
+        description="Ordered build stages: all positive solids first, then negative cuts."
+    )

@@ -55,6 +55,26 @@ def _as_shape(model):
     return model.val() if hasattr(model, "val") else model
 
 
+def _center_on_origin(model):
+    """Translate the model so its bounding-box center sits at the world origin.
+
+    The model writes geometry wherever was convenient; for a tidy export we want the
+    coordinate origin at the center of the part's overall envelope. This is purely a
+    rigid translation, so every measurement we take (bbox lengths, hole pitch/PCD —
+    all relative) is unchanged; only the absolute placement moves. Works on a
+    Workplane or a bare Shape (both expose `.translate`).
+    """
+    bb = _as_shape(model).BoundingBox()
+    offset = (
+        -(bb.xmin + bb.xmax) / 2,
+        -(bb.ymin + bb.ymax) / 2,
+        -(bb.zmin + bb.zmax) / 2,
+    )
+    if all(abs(c) < 1e-6 for c in offset):  # already centered
+        return model
+    return model.translate(offset)
+
+
 def _measure(shape) -> dict:
     """Measure the B-rep: overall bounding box and hole diameters.
 
@@ -150,16 +170,52 @@ def _render_views(shape, out: Path, name: str, tol: float = 0.1) -> list[str]:
 
     normals = vtk.vtkPolyDataNormals()
     normals.SetInputData(poly)
+    normals.SetFeatureAngle(30)  # split shading at real creases, keep curves smooth
     normals.Update()
+
+    # Surface: a neutral matte "clay" gray. Saturated colors compress the shading
+    # gradient and hide concave cuts; gray + low specular keeps form readable.
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputConnection(normals.GetOutputPort())
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
-    actor.GetProperty().SetColor(0.30, 0.55, 0.96)
+    prop = actor.GetProperty()
+    prop.SetColor(0.72, 0.72, 0.72)
+    prop.SetInterpolationToPhong()
+    prop.SetAmbient(0.28)  # lift shadowed pockets out of pure black
+    prop.SetDiffuse(0.75)
+    prop.SetSpecular(0.12)  # a hint of highlight, not glare
+    prop.SetSpecularPower(20)
+
+    # Feature edges: the single biggest legibility win. Draw real geometric edges
+    # (cut boundaries, hole rims, silhouettes) as dark lines so every cut is obvious.
+    edges = vtk.vtkFeatureEdges()
+    edges.SetInputData(poly)
+    edges.BoundaryEdgesOn()
+    edges.FeatureEdgesOn()
+    edges.SetFeatureAngle(30)  # only sharp creases; ignores tessellation facets on curves
+    edges.ManifoldEdgesOff()
+    edges.NonManifoldEdgesOff()
+    edge_mapper = vtk.vtkPolyDataMapper()
+    edge_mapper.SetInputConnection(edges.GetOutputPort())
+    edge_mapper.ScalarVisibilityOff()
+    edge_mapper.SetResolveCoincidentTopologyToPolygonOffset()  # keep lines above the surface
+    edge_actor = vtk.vtkActor()
+    edge_actor.SetMapper(edge_mapper)
+    edge_actor.GetProperty().SetColor(0.12, 0.12, 0.12)
+    edge_actor.GetProperty().SetLineWidth(1.5)
+    edge_actor.GetProperty().SetLighting(False)
 
     renderer = vtk.vtkRenderer()
     renderer.AddActor(actor)
+    renderer.AddActor(edge_actor)
     renderer.SetBackground(1, 1, 1)
+    # Multi-directional lighting (key + fill + back + head), camera-relative so it
+    # re-lights from each view — gives the varied shadow directions that reveal depth.
+    light_kit = vtk.vtkLightKit()
+    light_kit.SetKeyToFillRatio(2.5)
+    light_kit.SetKeyToBackRatio(3.0)
+    light_kit.AddLightsToRenderer(renderer)
     camera = renderer.GetActiveCamera()
     camera.ParallelProjectionOn()
 
@@ -212,6 +268,7 @@ def main() -> int:
     exec(compile(code, script_path, "exec"), namespace)  # noqa: S102 — sandboxed subprocess
 
     model = _resolve_object(namespace, shown)
+    model = _center_on_origin(model)
     shape = _as_shape(model)
 
     written = []

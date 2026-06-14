@@ -205,30 +205,39 @@ def render_file(
             stderr=f"TimeoutError: render exceeded {timeout:g}s and was killed.\n{e.stderr or ''}",
         )
 
+    # Scan for artifacts regardless of exit code. View rendering runs LAST in the
+    # harness and can hard-crash the child on a headless/GPU-less box (VTK/OpenGL:
+    # "GLEW could not be initialized") AFTER the geometry — STEP/STL + measurements —
+    # was already exported. That geometry is valid; only the PNG snapshots are missing.
+    # Each attempt writes a uniquely-named file, so a present file always belongs to
+    # this run (no stale-file false positives).
     outputs: dict[str, Path] = {}
     measurements: dict = {}
-    if proc.returncode == 0:
-        for fmt in formats:
-            ext = fmt if fmt.startswith(".") else f".{fmt}"
-            candidate = out_dir / f"{name}{ext}"
-            if candidate.exists():
-                outputs[fmt] = candidate
+    for fmt in formats:
+        ext = fmt if fmt.startswith(".") else f".{fmt}"
+        candidate = out_dir / f"{name}{ext}"
+        if candidate.exists():
+            outputs[fmt] = candidate
 
-        if viewer and "stl" in outputs:
-            outputs["html"] = _write_viewer(outputs["stl"])
+    if viewer and "stl" in outputs:
+        outputs["html"] = _write_viewer(outputs["stl"])
 
-        # Snapshot views + measurements emitted by the harness.
-        for view in _VIEWS:
-            png = out_dir / f"{name}.{view}.png"
-            if png.exists():
-                outputs[f"view_{view}"] = png
-        meas_path = out_dir / f"{name}.measurements.json"
-        if meas_path.exists():
-            outputs["measurements"] = meas_path
-            measurements = json.loads(meas_path.read_text(encoding="utf-8"))
+    # Snapshot views + measurements emitted by the harness.
+    for view in _VIEWS:
+        png = out_dir / f"{name}.{view}.png"
+        if png.exists():
+            outputs[f"view_{view}"] = png
+    meas_path = out_dir / f"{name}.measurements.json"
+    if meas_path.exists():
+        outputs["measurements"] = meas_path
+        measurements = json.loads(meas_path.read_text(encoding="utf-8"))
 
+    # A render is usable if the model was exported AND measured — even if the child
+    # later crashed while rendering the PNG views. A real code error produces neither,
+    # so it still fails (and the stderr drives the repair loop).
+    geometry_ok = "measurements" in outputs and any(fmt in outputs for fmt in formats)
     return RenderResult(
-        ok=proc.returncode == 0 and bool(outputs),
+        ok=(proc.returncode == 0 and bool(outputs)) or geometry_ok,
         outputs=outputs,
         measurements=measurements,
         stdout=proc.stdout,

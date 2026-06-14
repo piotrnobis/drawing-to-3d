@@ -15,9 +15,15 @@ if __name__ == "__main__":
         default=None,
         help="model thinking level (default: model's own)",
     )
+    parser.add_argument(
+        "--staged",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="force staged feature-by-feature build on/off (default: auto by complexity)",
+    )
     args = parser.parse_args()
 
-    run = CadAgent(thinking=args.thinking).run(args.drawing, args.out_dir)
+    run = CadAgent(thinking=args.thinking, staged=args.staged).run(args.drawing, args.out_dir)
     print(f"run dir: {run.run_dir}")
     print(f"trace:   {run.trace_path}")
     if run.ok:

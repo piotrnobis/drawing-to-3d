@@ -25,22 +25,32 @@ from google.genai import types
 
 from backend.agent.analysis import analyze
 from backend.agent.gate import GateResult, evaluate
-from backend.agent.models import Analysis
+from backend.agent.models import Analysis, BuildPlan
 from backend.agent.prompts import (
+    JUDGE_PROMPT,
+    PLAN_PROMPT,
+    REFERENCE_TEMPLATE,
     REFINE_PROMPT,
+    STAGE_FIRST_PROMPT,
+    STAGE_PROMPT,
     SYSTEM_PROMPT,
     USER_PROMPT,
     VISUAL_CRITIQUE_PROMPT,
     VISUAL_REFINE_PROMPT,
 )
+from backend.agent.retrieval import fetch_cadquery_examples
 from backend.cad import RenderResult, render_file
-from backend.llm import CodeResult, Conversation
+from backend.llm import JUDGE_MODEL, CodeResult, Conversation, ask_json
 
 # Tracebacks can be long; the actionable part is the tail. Keep tokens sane.
 _MAX_ERROR_CHARS = 2000
 _REASONING_PREVIEW_CHARS = 240
 
 _VIEW_KEYS = ("view_front", "view_top", "view_side", "view_iso")
+
+# In `staged` auto mode, build feature-by-feature only for parts this complex
+# (a one-shot script is fine — and faster — for simpler parts).
+_STAGED_DIM_THRESHOLD = 10
 
 # Critique turn: list discrepancies first, then decide (reason-before-verdict).
 _CRITIQUE_SCHEMA = types.Schema(
@@ -99,12 +109,14 @@ class CadAgent:
     def __init__(
         self,
         model: str | None = None,
-        max_repair: int = 3,
-        max_refine: int = 2,
+        max_repair: int = 4,
+        max_refine: int = 3,
         thinking: str | int | None = None,
+        staged: bool | None = None,
     ):
         self.max_repair = max_repair  # code-error retries per generation
         self.max_refine = max_refine  # visual-mismatch retries
+        self.staged = staged  # None = auto (by complexity); True/False = force on/off
         kwargs = {"system_instruction": SYSTEM_PROMPT, "thinking": thinking}
         if model:
             kwargs["model"] = model
@@ -128,48 +140,79 @@ class CadAgent:
 
         analysis = self._analyze(image_path)
 
-        code = self.chat.ask_code(USER_PROMPT, images=image_path)
-        self._record_generation("Initial generation", code)
-
-        script, render = self._render_with_repair(code, "iter0")
+        script = render = None
+        if self._use_staged(analysis):
+            staged = self._staged_build(image_path, analysis)
+            if staged is not None:  # None => staging failed; fall back to one-shot
+                script, render = staged
+        if render is None:
+            gen_prompt = USER_PROMPT + self._retrieved_examples(analysis)
+            code = self.chat.ask_code(gen_prompt, images=image_path)
+            self._record_generation("Initial generation", code)
+            script, render = self._render_with_repair(code, "iter0")
         if not render.ok:
             self._record("\n**Stopped: could not produce a rendering.**")
             return self._result(False, False, script, render, analysis=analysis)
 
         best: _Candidate | None = None
+        crash_note = ""  # carried into the next refine when one fails to render
+        critique = gate = None  # reused across iterations when the model is unchanged
+        evaluated = False  # whether `render` has been critiqued/scored yet
         for refine in range(self.max_refine + 1):
-            critique = self._critique(image_path, render)
-            gate = evaluate(analysis.dimensions, render.measurements) if analysis else GateResult()
-            score = self._score(critique, gate, render)
-            if best is None or score > best.score:  # elitism: keep the best candidate
-                best = _Candidate(score, script, render, critique, gate, refine)
-
-            self._record(
-                f"\n## Verify {refine} — visual: {critique.matches}, "
-                f"dimension gate: {'PASS' if gate.passed else 'FAIL'}\n\n"
-                f"{gate.table()}\n\n"
-                f"**Issues:** {critique.issues or '(none)'}\n{gate.failures()}"
-            )
-            print(
-                f"refine {refine}: visual={critique.matches} "
-                f"gate={'pass' if gate.passed else 'fail'} ({gate.n_pass} dims ok)"
-            )
-            if critique.issues and not critique.matches:
-                print(f"  visual issues: {critique.issues}")
-            if not gate.passed:
-                print(f"  dimension failures:\n{gate.failures()}")
+            if not evaluated:  # only (re-)critique when we have a fresh successful render
+                critique = self._critique(image_path, render)
+                critique = self._confirm_with_judge(image_path, render, critique)
+                gate = (
+                    evaluate(analysis.dimensions, render.measurements)
+                    if analysis
+                    else GateResult()
+                )
+                score = self._score(critique, gate, render)
+                if best is None or score > best.score:  # elitism: keep the best candidate
+                    best = _Candidate(score, script, render, critique, gate, refine)
+                self._record(
+                    f"\n## Verify {refine} — visual: {critique.matches}, "
+                    f"dimension gate: {gate.verdict()}\n\n"
+                    f"{gate.table()}\n\n"
+                    f"**Issues:** {critique.issues or '(none)'}\n{gate.failures()}"
+                )
+                print(f"refine {refine}: visual={critique.matches} gate={gate.verdict()}")
+                if critique.issues and not critique.matches:
+                    print(f"  visual issues: {critique.issues}")
+                if not gate.passed:
+                    print(f"  dimension failures:\n{gate.failures()}")
+                evaluated = True
 
             if (critique.matches and gate.passed) or refine == self.max_refine:
                 break
             feedback = self._merge_feedback(critique.issues, gate.failures())
-            code = self.chat.ask_code(VISUAL_REFINE_PROMPT.format(issues=feedback))
+            if crash_note:  # last attempt crashed: lead with a nudge to change tack
+                feedback = f"{crash_note}\n\n{feedback}"
+            # Anchor the refine to the BEST working script so far (not the last attempt,
+            # which may be a regression) and demand a minimal edit — this stops the
+            # "rewrite everything and break something else" oscillation.
+            current_code = best.script.read_text(encoding="utf-8")
+            code = self.chat.ask_code(
+                VISUAL_REFINE_PROMPT.format(issues=feedback, current_code=current_code)
+            )
             self._record_generation(f"Refine generation {refine + 1}", code)
             new_script, new_render = self._render_with_repair(code, f"iter{refine + 1}")
-            if not new_render.ok:  # a refine broke the script; keep the best earlier one
-                self._record("\n**A refine failed to render; keeping the best earlier candidate.**")
-                print("  refine broke; keeping best so far", file=sys.stderr)
-                break
+            if not new_render.ok:
+                # This refine attempt won't render. Don't abandon the whole budget — keep
+                # refining from the best model so far, telling the model to take a simpler tack.
+                crash_note = (
+                    "Your last refine attempt FAILED to render even after repair tries and was "
+                    "discarded. Take a SIMPLER, different construction for the issues below — "
+                    "avoid the method/approach that just crashed."
+                )
+                self._record(
+                    "\n**A refine failed to render; retrying from the best candidate so far.**"
+                )
+                print("  refine broke; retrying from best so far", file=sys.stderr)
+                continue  # re-enter the loop against the unchanged best render (no re-critique)
+            crash_note = ""
             script, render = new_script, new_render
+            evaluated = False  # new successful render → critique it next iteration
 
         verified = bool(best.critique.matches and best.gate.passed)
         self._finalize(best.script, best.render)
@@ -233,6 +276,45 @@ class CadAgent:
             issues = connectivity + (f"\n{issues}" if issues else "")
         return CritiqueResult(matches=bool(data.get("matches")) and not connectivity, issues=issues)
 
+    def _confirm_with_judge(
+        self, image_path: str | Path, render: RenderResult, critique: CritiqueResult
+    ) -> CritiqueResult:
+        """Confirm a claimed visual PASS with an INDEPENDENT judge before trusting it.
+
+        The self-critique runs inside the generation conversation, so it shares the
+        model's context and tends to rationalize its own intent (a model can look right
+        in the front view yet be staggered in the iso, and the self-critique waves it
+        through). The judge is a stateless call — no system prompt, no history, only the
+        drawing + renders — so it can disagree. We only spend a judge call when the cheap
+        self-critique already claims a match, so it costs ~one call per run and exists
+        purely to catch false positives. A failing self-critique is left untouched.
+        """
+        if not critique.matches:
+            return critique
+        views = [render.outputs[k] for k in _VIEW_KEYS if k in render.outputs]
+        if not views:
+            return critique
+        try:
+            data = ask_json(
+                JUDGE_PROMPT, images=[image_path, *views], schema=_CRITIQUE_SCHEMA, model=JUDGE_MODEL
+            )
+        except Exception as exc:  # noqa: BLE001 — judge is best-effort, never fatal
+            print(f"  judge unavailable ({type(exc).__name__}); using self-critique", file=sys.stderr)
+            return critique
+        agrees = bool(data.get("matches"))
+        reasoning = (data.get("issues") or "").strip()
+        self._record(
+            f"\n_Independent judge ({JUDGE_MODEL}) — matches: {agrees}_"
+            + (f"\n\n> {reasoning}" if reasoning else "")
+        )
+        print(f"  judge: matches={agrees}")
+        if agrees:
+            return critique
+        # Judge overrules the self-critique's pass; feed its findings into the refine loop.
+        flagged = f"An independent reviewer flagged a shape mismatch: {reasoning or '(no detail)'}"
+        issues = f"{critique.issues}\n{flagged}" if critique.issues else flagged
+        return CritiqueResult(matches=False, issues=issues)
+
     def _analyze(self, image_path: str | Path) -> Analysis | None:
         """Reason about the drawing first; save the analysis + dimension table."""
         try:
@@ -254,6 +336,90 @@ class CadAgent:
         )
         print(f"analysis: {analysis.guess[:120]} | {len(analysis.dimensions)} dimensions")
         return analysis
+
+    def _retrieved_examples(self, analysis: Analysis | None) -> str:
+        """Optional Tavily grounding: a few CadQuery examples for the part, else '' (no-op).
+
+        Best-effort partner-tech hook. Returns a prompt suffix only when retrieval is
+        configured AND returns something; otherwise the generation prompt is unchanged.
+        """
+        if analysis is None:
+            return ""
+        examples = fetch_cadquery_examples(analysis.guess or analysis.summary)
+        if not examples:
+            return ""
+        self._record(f"\n## Retrieved CadQuery references (Tavily)\n\n{examples}")
+        print("retrieved CadQuery examples via Tavily")
+        return REFERENCE_TEMPLATE.format(examples=examples)
+
+    # --- staged construction (build & verify one feature at a time) --------
+
+    def _use_staged(self, analysis: Analysis | None) -> bool:
+        """Whether to build incrementally: forced by `staged`, else auto by complexity."""
+        if self.staged is not None:
+            return self.staged
+        return analysis is not None and len(analysis.dimensions) >= _STAGED_DIM_THRESHOLD
+
+    def _plan(self, image_path: str | Path, analysis: Analysis) -> BuildPlan | None:
+        """Ask for an ordered feature plan (solids first, then cuts) for staged building."""
+        try:
+            data = self.chat.ask_structured(PLAN_PROMPT, images=image_path, schema=BuildPlan)
+            plan = BuildPlan.model_validate(data)
+        except Exception as exc:  # noqa: BLE001 — planning is best-effort; fall back to one-shot
+            print(f"  staged plan failed ({type(exc).__name__}); one-shot instead", file=sys.stderr)
+            return None
+        return plan if plan.stages else None
+
+    def _staged_build(
+        self, image_path: str | Path, analysis: Analysis
+    ) -> tuple[Path, RenderResult] | None:
+        """Build the model feature-by-feature, locking each stage that renders.
+
+        Returns the final (script, render) to hand to the normal critique/refine loop,
+        or None if staging couldn't even get off the ground (caller falls back to one-shot).
+        Each stage EXTENDS the last known-good script, so a feature can only be added on
+        top of a solid that already works — no global rewrites, far less oscillation.
+        """
+        plan = self._plan(image_path, analysis)
+        if plan is None:
+            return None
+        listing = "\n".join(
+            f"{i + 1}. **{s.name}** ({s.kind}) — {s.instructions}" for i, s in enumerate(plan.stages)
+        )
+        self._record(f"\n## Staged build plan ({len(plan.stages)} stages)\n\n{listing}")
+        print(f"staged build: {len(plan.stages)} stages")
+
+        current_code: str | None = None
+        script: Path | None = None
+        render: RenderResult | None = None
+        for i, stage in enumerate(plan.stages):
+            if current_code is None:
+                prompt = STAGE_FIRST_PROMPT.format(name=stage.name, kind=stage.kind, instructions=stage.instructions)
+            else:
+                prompt = STAGE_PROMPT.format(
+                    n=i + 1, name=stage.name, kind=stage.kind,
+                    instructions=stage.instructions, current_code=current_code,
+                )
+            code = self.chat.ask_code(prompt, images=image_path)
+            self._record_generation(f"Stage {i + 1} — {stage.name}", code)
+            new_script, new_render = self._render_with_repair(code, f"stage{i}")
+            if not new_render.ok:
+                if current_code is None:  # first stage never rendered → give up on staging
+                    self._record("\n**Staged build abandoned (first stage would not render).**")
+                    return None
+                self._record(f"\n**Stage {i + 1} ({stage.name}) would not render; skipping it.**")
+                print(f"  stage {i + 1} skipped (no render)", file=sys.stderr)
+                continue
+            solids = new_render.measurements.get("solid_count", 1)
+            gate = evaluate(analysis.dimensions, new_render.measurements) if analysis else GateResult()
+            self._record(f"\n_Stage {i + 1} locked — solids: {solids}, gate: {gate.verdict()}_")
+            print(f"  stage {i + 1} locked: solids={solids} gate={gate.verdict()}")
+            current_code = new_script.read_text(encoding="utf-8")  # the code that actually rendered
+            script, render = new_script, new_render
+
+        if script is None or render is None:
+            return None
+        return script, render
 
     @staticmethod
     def _score(critique: CritiqueResult, gate: GateResult, render: RenderResult) -> tuple:

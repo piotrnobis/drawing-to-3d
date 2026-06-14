@@ -25,6 +25,11 @@ load_dotenv()  # loads GEMINI_API_KEY from .env
 
 DEFAULT_MODEL = "gemini-3.5-flash"
 
+# The independent visual judge runs as a SEPARATE, stateless call (no system prompt,
+# no generation history) so it cannot rationalize the generator's own intent. It uses a
+# stronger Pro-tier model for a tougher reviewer; override with the JUDGE_MODEL env var.
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini-3.1-pro-preview")
+
 # gemini-3.5-flash is a "thinking" model: internal thinking tokens count against
 # max_output_tokens, so this budget must cover BOTH the thinking and the visible
 # JSON answer (reasoning + a ~200-line script). Too low truncates the answer
@@ -236,6 +241,32 @@ def ask_code(
 ) -> str:
     """Like `ask`, but returns only the runnable code (model still reasons first)."""
     return ask_code_json(prompt, images=images, model=model).code
+
+
+def ask_json(
+    prompt: str,
+    images: str | Path | Sequence[str | Path] | None = None,
+    *,
+    schema,
+    model: str = DEFAULT_MODEL,
+) -> dict:
+    """One-shot structured call: stateless, NO system instruction, parsed JSON dict.
+
+    Used for an independent reviewer that must judge only what it is shown (the
+    drawing + renders), with none of the generator's context biasing it.
+    """
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=schema,
+        max_output_tokens=_MAX_OUTPUT_TOKENS,
+        media_resolution=_MEDIA_RESOLUTION,
+    )
+    resp = _retry(
+        lambda: _get_client().models.generate_content(
+            model=model, contents=_build_contents(prompt, images), config=config
+        )
+    )
+    return json.loads(resp.text)
 
 
 class Conversation:

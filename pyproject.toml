@@ -18,6 +18,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff", "black", "mypy"]
+# Optional partner tech: web retrieval of CadQuery examples to ground generation.
+# Entirely best-effort — the pipeline no-ops cleanly without it (or its API key).
+retrieval = ["tavily-python>=0.5"]
 
 [tool.setuptools.packages.find]
 include = ["backend*"]

@@ -35,6 +35,20 @@ class GateResult:
     def n_pass(self) -> int:
         return sum(1 for r in self.rows if r.status == "pass")
 
+    @property
+    def n_measured(self) -> int:
+        """Rows we could actually check (pass or fail) — the real verification coverage."""
+        return sum(1 for r in self.rows if r.status != "unmeasured")
+
+    def verdict(self) -> str:
+        """A pass/fail label that exposes coverage, so a near-empty gate isn't mistaken for
+        strong verification (PASS with most dims unmeasured means almost nothing was checked)."""
+        state = "PASS" if self.passed else "FAIL"
+        if not self.rows:
+            return state
+        unmeasured = len(self.rows) - self.n_measured
+        return f"{state} ({self.n_pass}/{len(self.rows)} verified, {unmeasured} unmeasured)"
+
     def table(self) -> str:
         if not self.rows:
             return "(no dimensions to check)"
