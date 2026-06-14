@@ -58,13 +58,25 @@ class GateResult:
         )
 
 
+def _take_nearest(pool: list[float], value: float) -> float | None:
+    """Pop and return the pool entry nearest `value` (so each callout matches one feature)."""
+    if not pool:
+        return None
+    best = min(pool, key=lambda x: abs(x - value))
+    pool.remove(best)
+    return best
+
+
 def evaluate(dimensions: list[Dimension], measurements: dict) -> GateResult:
     """Compare each analysis dimension to the measured B-rep."""
     bbox = measurements.get("bbox", {})
     remaining_holes = sorted(measurements.get("hole_diameters", []))
-    # NOTE: measured `hole_count` is the total of ALL full cylinders (bolt holes
-    # AND pipe bores), so it can't be compared to a per-feature bolt count. We
-    # leave hole_count dims unmeasured until holes are grouped per feature.
+
+    # Per-pattern hole geometry -> consumable pools for count / pitch / bolt-circle.
+    groups = measurements.get("hole_groups", [])
+    counts = [float(g["count"]) for g in groups]
+    pitches = [g["pitch"] for g in groups if g.get("pitch") is not None]
+    pcds = [g["pcd"] for g in groups if g.get("pcd") is not None]
 
     # The overall extent along an axis is a SINGLE dimension (the largest one
     # tagged to that axis). Smaller dims mistagged as bbox_* are sub-features the
@@ -83,10 +95,15 @@ def evaluate(dimensions: list[Dimension], measurements: dict) -> GateResult:
 
         if dim.kind in axis_key and id(dim) in is_overall:
             measured = bbox.get(axis_key[dim.kind])
-        elif dim.kind == "hole_diameter" and remaining_holes:
-            # consume the nearest measured diameter so repeated callouts match distinct holes
-            measured = min(remaining_holes, key=lambda h: abs(h - dim.value))
-            remaining_holes.remove(measured)
+        elif dim.kind == "hole_diameter":
+            measured = _take_nearest(remaining_holes, dim.value)
+        elif dim.kind == "hole_count":
+            measured = _take_nearest(counts, dim.value)
+        elif dim.kind == "hole_pitch":
+            measured = _take_nearest(pitches, dim.value)
+        elif dim.kind == "bolt_circle":
+            measured = _take_nearest(pcds, dim.value)
+        # spacing / thickness / other: not auto-measured -> unmeasured
 
         if measured is None:
             status = "unmeasured"

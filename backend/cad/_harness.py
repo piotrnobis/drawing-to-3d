@@ -65,22 +65,70 @@ def _measure(shape) -> dict:
     from OCP.BRepTools import BRepTools
 
     bb = shape.BoundingBox()
-    holes = []
+    holes = []  # raw per-hole geometry, grouped below into patterns
     for face in shape.Faces():
         if face.geomType() != "CYLINDER":
             continue
         umin, umax, _, _ = BRepTools.UVBounds_s(face.wrapped)
         if (umax - umin) < _HOLE_SPAN_MIN:
             continue  # fillet/round, not a hole
-        radius = BRepAdaptor_Surface(face.wrapped).Cylinder().Radius()
-        holes.append(round(radius * 2, 3))
+        cyl = BRepAdaptor_Surface(face.wrapped).Cylinder()
+        dia = round(cyl.Radius() * 2, 3)
+        d = cyl.Axis().Direction()
+        axis = (d.X(), d.Y(), d.Z())
+        # dominant axis component, sign-normalized so opposite-pointing holes group
+        i = max(range(3), key=lambda k: abs(axis[k]))
+        sign = 1.0 if axis[i] >= 0 else -1.0
+        canon = tuple(round(c * sign, 2) for c in axis)
+        fbb = face.BoundingBox()
+        mins = (fbb.xmin, fbb.ymin, fbb.zmin)
+        maxs = (fbb.xmax, fbb.ymax, fbb.zmax)
+        center = tuple((lo + hi) / 2 for lo, hi in zip(mins, maxs))
+        perp = [j for j in range(3) if j != i]  # the two in-pattern axes
+        holes.append(
+            {
+                "dia": dia,
+                # holes of one pattern share axis, diameter, and the face's along-axis span
+                "key": (canon, dia, round(mins[i]), round(maxs[i])),
+                "center": (center[perp[0]], center[perp[1]]),
+            }
+        )
 
     return {
         "bbox": {"x": round(bb.xlen, 3), "y": round(bb.ylen, 3), "z": round(bb.zlen, 3)},
-        "hole_diameters": sorted(holes),
+        "hole_diameters": sorted(h["dia"] for h in holes),
         "hole_count": len(holes),
+        "hole_groups": _group_holes(holes),
         "solid_count": len(shape.Solids()),  # >1 means disconnected pieces
     }
+
+
+def _group_holes(holes: list[dict]) -> list[dict]:
+    """Cluster holes into patterns and measure each: count, diameter, pitch, PCD."""
+    by_key: dict = {}
+    for h in holes:
+        by_key.setdefault(h["key"], []).append(h["center"])
+
+    groups = []
+    for (_axis, dia, _lo, _hi), centers in by_key.items():
+        n = len(centers)
+        pitch = pcd = None
+        if n > 1:
+            cx = sum(p[0] for p in centers) / n
+            cy = sum(p[1] for p in centers) / n
+            pcd = round(2 * sum(math.hypot(p[0] - cx, p[1] - cy) for p in centers) / n, 3)
+            pitch = round(
+                min(
+                    math.hypot(a[0] - b[0], a[1] - b[1])
+                    for idx, a in enumerate(centers)
+                    for b in centers[idx + 1 :]
+                ),
+                3,
+            )
+        groups.append({"count": n, "diameter": dia, "pitch": pitch, "pcd": pcd})
+
+    groups.sort(key=lambda g: (-g["count"], g["diameter"]))
+    return groups
 
 
 def _render_views(shape, out: Path, name: str, tol: float = 0.1) -> list[str]:

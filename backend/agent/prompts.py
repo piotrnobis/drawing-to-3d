@@ -46,8 +46,12 @@ AT MOST ONCE — only for the largest overall extent of the whole part on that a
 Z is up and the front view is the X-Z plane.
    - A branch length, a flange width, a sub-section height, or any distance that is NOT the \
 whole part's overall extent is `spacing` (or `other`) — NEVER bbox_*.
-   - hole_diameter = a hole/bore diameter; hole_count = how many holes share a size;
-   - spacing = distance between features; thickness = a wall/plate thickness; other = anything else.
+   - hole_diameter = a hole/bore diameter;
+   - hole_count = how many holes are in ONE pattern/flange (e.g. a 4-bolt flange = 4);
+   - hole_pitch = hole-to-hole spacing within a pattern (e.g. the 40 in a 40×40 bolt grid);
+   - bolt_circle = the bolt-circle / pitch-circle DIAMETER of a circular hole pattern;
+   - spacing = a distance between SEPARATE features (e.g. branch-to-branch); thickness = a \
+wall/plate thickness; other = anything else.
 
 Report ONLY dimensions actually shown in the drawing. This dimension table will be checked \
 against the 3D model you build, so be accurate and complete."""
@@ -69,23 +73,26 @@ VISUAL_CRITIQUE_PROMPT = """The FIRST image is the original engineering drawing.
 following images are front, top, side, and isometric renders of the 3D model your script \
 just produced.
 
-Judge ONLY whether the model is STRUCTURALLY the same part as the drawing. Look across \
-all views (don't rely on the iso alone) and flag a problem only if it is one of:
-- a MISSING or EXTRA feature (a pipe, flange, boss, rib, or hole that is absent or invented);
-- a feature with the WRONG ORIENTATION or on the wrong side / wrong face;
-- a clearly WRONG TOPOLOGY (two parts that should be joined are visibly disconnected, or a \
-through-feature is solid);
-- GROSSLY wrong proportions (off by roughly 2x or more).
+Compare the model to the drawing across ALL views (don't rely on the iso alone — some \
+errors show in only one orthographic view). Report every way the model's SHAPE differs \
+from the drawing, such as:
+- a missing or extra feature (pipe, flange, boss, rib, hole);
+- a bore/hole that should be OPEN but is solid (a flange face missing its central bore, a \
+pipe end capped instead of a hollow ring);
+- a feature on the wrong side / wrong face, or in the wrong orientation;
+- parts that should be one piece but are disconnected;
+- wrong overall form or shape of a feature (e.g. square where it should be round).
 
-Do NOT flag small positional offsets, exact distances, or sizes — those are checked \
-separately and precisely by a numeric dimension gate, not by eye. If a feature is present, \
-on the right face, and roughly the right size, treat it as matching. Ignore shading, \
-color, and background.
+Do NOT report fine numeric details — exact lengths, diameters, distances, small positional \
+offsets, or slightly-off proportions. A separate numeric **dimension gate** measures those \
+precisely and far better than the eye, so leave them to it: if a feature is present, on the \
+right face, and roughly the right size/shape, treat its exact size and position as correct \
+here. Ignore shading, color, and background.
 
-Set `matches` to true unless there is at least one of the structural problems above. When \
-false, list those concrete problems in `issues` (e.g. "the top flange is square but the \
-drawing shows it round", "missing the side branch", "the rib is disconnected from the \
-column")."""
+Set `matches` to true if the SHAPE matches (none of the issues above). Otherwise set it \
+false and list the concrete shape discrepancies in `issues` (e.g. "the square flange has no \
+central bore — it should be open", "missing the side branch", "the rib is disconnected from \
+the column")."""
 
 VISUAL_REFINE_PROMPT = """The render does not yet match the drawing. Discrepancies to fix:
 

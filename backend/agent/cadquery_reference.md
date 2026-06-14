@@ -39,9 +39,10 @@ to use, the selectors, and the mistakes to avoid. Mirror the worked examples at 
   construction rect/circle + `.vertices()` (or `.pushPoints([...])`) then `.hole(d)`.
 - **Pipes / elbows:** build the centerline with `.lineTo(...)` then `.tangentArcPoint((x, y),
   relative=False)` (or `.radiusArc((x, y), R)`) for each bend, then `.sweep` a circle along it.
-  Hollow pipe = sweep OD, then cut a swept ID.
-- **Sketch API:** `cq.Sketch().rect(...)`/`.circle(...)`/`.arc(...)`; `.hull()` needs entities
-  added first; place with `.placeSketch(sk)` or build in place with `.sketch() … .finalize()`.
+  Hollow pipe = sweep OD, then cut a swept ID whose path is extended a few mm BEYOND each open
+  end so the ends are truly open (annular), not capped.
+- **Sketch API:** `cq.Sketch().rect(...)`/`.arc(...)`; `.hull()` needs entities added first; place
+  with `.placeSketch(sk)` or build in place with `.sketch() … .finalize()`.
 
 ## 4. Selectors (cheat sheet)
 - `">Z"` / `"<Z"` — farthest face/edge in +Z / −Z. `"|Z"` parallel to Z; `"#Z"` perpendicular
@@ -63,7 +64,13 @@ to use, the selectors, and the mistakes to avoid. Mirror the worked examples at 
 - **No `.cutDepth()`** (it doesn't exist) — use `.cut()`, `.cutBlind(-d)`, `.cutThruAll()`.
 - **`.fillet(r)` / `.chamfer(c)` operate on already-SELECTED edges:** `part.edges("|Z").fillet(3)`.
   Never pass an edge list as an argument.
-- **`hull()` is Sketch-only** — build a `cq.Sketch()`, add arcs/segments/circles, THEN `.hull()`.
+- **`hull()` is Sketch-only AND only hulls entities added as `.arc(...)` / `.segment(...)`.**
+  `.circle()` / `.push().circle()` do NOT feed the hull (→ `ValueError: No entities specified`);
+  add each circle as a full arc: `.arc(center, r, 0.0, 360.0)`, THEN `.hull()`.
+- **Bores must OPEN where the drawing shows a hole.** A through-bore must pass entirely through
+  every flange/wall it ends at, cut a few mm PAST that face — otherwise the face stays solid (a
+  "blind" bore). The main bore must open at BOTH the circular flange face and the square flange
+  top; a pipe end must be a hollow ring, not a solid disc.
 - **Drill holes AFTER unioning** all solids; **make mating parts overlap** before union; the final
   `result` must be ONE connected solid.
 - **Workplane on a face:** select a SINGLE planar face (precise selector or `.filter`) or you get
