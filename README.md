@@ -9,6 +9,8 @@ measured against every dimension callout.
 
 Built for the Munich AI Hackathon (Kyrall track). Single model provider: **Gemini**.
 
+**▶ Live demo: https://ortograph.pages.dev**
+
 - **Input:** a multi-view orthographic drawing (PNG/JPG).
 - **Output:** an editable **STEP** (+ STL) model with an automatic, pass/fail **dimension report**.
 - **Engine:** one Gemini conversation runs the whole loop — analyze → generate → run → render → verify → refine.
@@ -122,6 +124,25 @@ npm run dev            # http://localhost:8080
 
 The demo lets you pick a sample part, watch it reconstruct (staged animation), inspect the 3D STEP
 model, see the live dimension-gate table, and download the STEP/STL.
+
+### Deploy (Cloudflare Pages)
+
+The frontend builds to a **static SPA** (`vite.config.ts` enables SPA mode; `postbuild` writes
+`index.html`/`404.html` from the shell, and `public/_redirects` handles client-side routing). It's
+hosted on Cloudflare Pages at **https://ortograph.pages.dev**.
+
+To (re)deploy — needs a free Cloudflare account; no API key, the first run authorizes via browser:
+
+```bash
+cd frontend
+npx wrangler login                                              # one-time browser auth
+npm run build                                                   # -> dist/client (static)
+npx wrangler pages deploy dist/client --project-name=ortograph  # uploads; prints the URL
+```
+
+`ortograph.pages.dev` always points to the latest deploy (the per-deployment `*.pages.dev` hash URLs
+are previews and may show a TLS warning for a few minutes until their cert provisions — use the
+production URL).
 
 ---
 
