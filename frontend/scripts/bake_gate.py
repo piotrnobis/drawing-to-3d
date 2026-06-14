@@ -4,7 +4,7 @@ Reuses the actual backend gate logic (backend.agent.gate.evaluate) so the demo
 table matches what the pipeline produced — no TS reimplementation. Run from the
 repo root with the project env:
 
-    python frontend/lovable_project/scripts/bake_gate.py renders/run_<ts>
+    python frontend/scripts/bake_gate.py renders/run_<ts>
 
 Prints a JSON object: {summary, guess, rows[], nPass, nMeasured, verdict}.
 """

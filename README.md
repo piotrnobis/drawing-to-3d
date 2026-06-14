@@ -1,117 +1,151 @@
-# drawing-to-3d
+# Ortograph
 
-**Reconstruct an editable parametric CAD model (STEP) from a technical engineering drawing.**
+**Turn a 2D engineering drawing into a verified, editable 3D CAD model.**
 
-Munich AI Hackathon · Kyrall track. Working name: *drawing-to-3d* (rename freely).
+Ortograph reads a multi-view orthographic engineering drawing and reconstructs it as a real
+**parametric STEP model** (a B-rep you can edit — *not* a mesh) — then **proves it is right three
+ways**: a vision critique looks at it, an independent judge double-checks, and the geometry is
+measured against every dimension callout.
 
-- **Input:** a multi-view orthographic engineering drawing (PNG).
-- **Output:** a parametric **STEP** model (editable B-rep, *not* a mesh), with an automatic dimension report.
-- **Engine:** a single vision model (**Gemini 3.5 Flash**) driving extraction, code generation, and a verify/refine loop.
+Built for the Munich AI Hackathon (Kyrall track). Single model provider: **Gemini**.
 
-> **Status:** early. We build **incrementally**, one small piece at a time, with Claude Code as a copilot. Nothing here is a finished system yet; this README describes what we are building toward. See `ARCHITECTURE.md` for the design and `TASKS.md` for who owns what.
-
----
-
-## How it works (one paragraph)
-
-We read the drawing into a structured spec (views, dimensions, features), generate **CadQuery** code constrained to real CAD operations, then prove the result: project the solid back into orthographic views, overlay it against the original drawing, and measure every dimension against the spec. Mismatches are fed back to the model to refine. The dimensional pass/fail check is the hard gate and our differentiator. Full detail in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+- **Input:** a multi-view orthographic drawing (PNG/JPG).
+- **Output:** an editable **STEP** (+ STL) model with an automatic, pass/fail **dimension report**.
+- **Engine:** one Gemini conversation runs the whole loop — analyze → generate → run → render → verify → refine.
 
 ---
 
-## Tech stack
+## Why it's hard (and why verification is the point)
 
-| Area | Choice | Notes |
+Inferring one solid that is consistent across three views is genuine spatial reasoning, and vision
+models are weak at it. A part that *looks* right but *measures* wrong is useless as a replacement
+part. So **checking is the product, not an afterthought** — and we check three independent ways:
+
+| Signal | What it asks | How |
 |---|---|---|
-| Model | Gemini 3.5 Flash | via Google **AI Studio** key (Gemini Developer API) |
-| Gemini SDK | `google-genai` | the unified SDK; **not** the deprecated `google-generativeai` |
-| CAD kernel | **CadQuery** (OpenCASCADE) | B-rep, STEP export, orthographic projection, dimension queries |
-| Backend | Python + FastAPI | *planned* |
-| Frontend | React + Vite + TypeScript + Tailwind + react-three-fiber | *planned* |
-| Tooling | ruff + black (py), eslint + prettier (ts) | keep deps lean and pinned |
+| **Eye** | Does it look like the part? | A vision critique compares the 4 rendered views to the drawing (structural errors only). |
+| **Judge** | Would a fresh reviewer agree? | A separate, stronger model with **no system prompt and no history**, shown only the drawing + renders, vetoes false positives the in-context critic rationalizes. |
+| **Ruler** | Does it measure right? | A deterministic **dimension gate** measures the B-rep (bbox, hole diameters, hole patterns: count / pitch / bolt-circle) against the drawing's callouts. |
 
-We deliberately use **one** model provider and a **minimal** dependency set (smaller attack surface, cleaner security scan).
+A model is **verified** only when all three agree. The dimension gate is the differentiator — the
+eye can be fooled, the ruler cannot.
 
 ---
 
-## Repo layout (current → target)
+## How it works
+
+One `CadAgent` drives a single Gemini conversation:
+
+1. **Analyze** — Gemini reads the drawing into a structured `Analysis` (summary, per-view notes, and
+   a **dimension table** that becomes the ground truth for the gate).
+2. **Generate** — it writes **CadQuery** code, grounded by an embedded CadQuery manual and a few
+   examples fetched live via **Tavily**. Complex parts are built **one feature at a time** (staged
+   build), each stage locked once it renders.
+3. **Run + repair** — the untrusted script runs in a **sandboxed subprocess**; code errors are fed
+   back and fixed before any verification.
+4. **Render + measure** — export STEP/STL, render 4 views (front/top/side/iso), and measure the B-rep.
+5. **Verify** — the three signals above.
+6. **Refine** — if a check fails, the discrepancies are fed back and the model edits the *best
+   working script so far* (minimal change, not a rewrite). Bounded iterations with **elitism** — it
+   always returns the best candidate, never a regression.
+
+Each run is saved to a timestamped `renders/run_<ts>/` with every iteration's artifacts and a full
+`trace.md` of the model's reasoning and critiques. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## Repo layout
 
 ```
 .
-├── README.md              # this file
-├── environment.yml        # ✅ conda env (python 3.12 + deps)
-├── .env.example           # ✅ GEMINI_API_KEY=...
-├── docs/
-│   ├── ARCHITECTURE.md    # ✅ pipeline design + the 3 interface contracts
-│   ├── AGENTS.md          # ✅ rules for Claude Code / AI agents working in this repo
-│   └── SECURITY.md        # ✅ threat model, secrets, Aikido steps
-├── backend/               # FastAPI + pipeline modules
-│   ├── llm/
-│   │   └── gemini.py      # ✅ Gemini helpers — ask / ask_code (JSON) / Conversation
-│   ├── cad/               # ✅ sandboxed CadQuery runner + measurement + render
-│   │   ├── render.py      #    render_file/_code -> STEP/STL/SVG/HTML + views + measurements
-│   │   └── _harness.py    #    runs the untrusted script inside the subprocess
-│   └── agent/             # ✅ analyze -> generate -> render -> verify (shape+size) -> refine
-│       ├── agent.py       #    CadAgent: the loop, with elitism/keep-best
-│       ├── analysis.py    #    drawing -> structured Analysis + dimension table
-│       ├── gate.py        #    dimensional gate: measured B-rep vs dimension table
-│       ├── models.py      #    pydantic Analysis / Dimension
-│       ├── prompts.py     #    system prompt + analysis/critique/refine prompts
-│       └── cadquery_reference.md  # the CadQuery manual (model context)
-├── renders/               # (gitignored) debug render outputs
-├── samples/               # sample drawings + CadQuery fixtures
-└── frontend/              # (planned) React UI
+├── backend/                 # the agent + CAD pipeline (Python)
+│   ├── llm/gemini.py        #   Gemini access: ask / ask_code / ask_json / Conversation
+│   ├── cad/                 #   sandboxed CadQuery runner
+│   │   ├── render.py        #     render_file/_code -> STEP/STL/SVG + 4 views + measurements
+│   │   └── _harness.py      #     runs untrusted code in a subprocess; measures the B-rep
+│   └── agent/               #   the loop
+│       ├── agent.py         #     CadAgent: analyze->generate->run->render->verify->refine
+│       ├── analysis.py      #     drawing -> Analysis + dimension table
+│       ├── gate.py          #     dimension gate (the "ruler")
+│       ├── models.py        #     pydantic: Analysis, Dimension, BuildPlan
+│       ├── prompts.py       #     all prompts (system, critique, judge, refine, staged)
+│       ├── retrieval.py     #     optional Tavily CadQuery-example retrieval
+│       └── cadquery_reference.md  # the embedded CadQuery manual
+├── frontend/                # React (TanStack Start) demo app — the Ortograph UI
+│   ├── src/{routes,components,demo}/
+│   ├── public/demo/         #   bundled real-run artifacts the demo replays
+│   └── scripts/bake_gate.py
+├── docs/                    # ARCHITECTURE, AGENTS, SECURITY, views-reference, demo-script
+├── samples/                 # sample engineering drawings
+├── environment.yml          # conda env (Python 3.12 + CadQuery/OpenCASCADE)
+├── pyproject.toml           # package + pinned deps
+└── renders/                 # (gitignored) per-run outputs + trace.md
 ```
-
-✅ = exists. Everything else lands as we build it.
 
 ---
 
-## Setup
+## Setup & run — backend
 
-You need a Google AI Studio API key (https://aistudio.google.com/apikey).
+Needs a Google AI Studio API key (https://aistudio.google.com/apikey). CadQuery ships native
+OpenCASCADE libraries, so the env is created via **conda**.
 
 ```bash
-# 1. clone + enter
-git clone <repo> && cd drawing-to-3d
-
-# 2. conda env (python 3.12 + CadQuery), then install the package
 conda env create -f environment.yml
 conda activate drawing-to-3d
-pip install -e .[dev]
+pip install -e .[dev]            # add ,retrieval for the optional Tavily integration
 
-# 3. secrets — copy the example and paste your AI Studio key
-cp .env.example .env
-#   then edit .env:  GEMINI_API_KEY=your_key_here
+cp .env.example .env             # then set GEMINI_API_KEY=... (and optionally TAVILY_API_KEY=...)
 ```
 
-## Run
+Run the agent on a drawing:
 
 ```bash
-# drawing -> CadQuery -> rendered model (STEP/STL/SVG + HTML viewer in renders/)
 python -m backend.agent samples/orthographic_3/cad-drawing.png
-
-# render a CadQuery script directly
-python -m backend.cad samples/cad/bracket.py
-
-# Gemini smoke test
-python -m backend.llm
+#   --staged / --no-staged        force feature-by-feature vs one-shot (default: auto by complexity)
+#   --thinking minimal|low|medium|high|dynamic
 ```
 
-Frontend run instructions are added here as that part is built.
+Outputs land in `renders/run_<timestamp>/` — open `final.html` (3D viewer), inspect `final.step`,
+and read `trace.md`. Other entry points: `python -m backend.cad <script.py>` (render a CadQuery
+script) and `python -m backend.llm` (Gemini smoke test).
+
+## Setup & run — frontend (demo UI)
+
+The web app is a guided demo that **replays real runs** from bundled artifacts (it is not wired to
+the live backend yet; the data layer has a clean seam to add one). React + TanStack Start + Vite.
+
+```bash
+cd frontend
+npm install            # or: bun install
+npm run dev            # http://localhost:8080
+```
+
+The demo lets you pick a sample part, watch it reconstruct (staged animation), inspect the 3D STEP
+model, see the live dimension-gate table, and download the STEP/STL.
 
 ---
 
-## Deliverables (hackathon submission)
+## Security
 
-- [ ] 2-minute demo video (Loom or similar)
-- [ ] Public GitHub repo with this README + setup that works from scratch
-- [ ] Aikido security report screenshot (see `SECURITY.md`)
-- [ ] Working pipeline on 2–3 hero parts with a passing dimension table
+The pipeline executes **LLM-generated CadQuery code**, which is arbitrary code execution — the
+single biggest risk. It is run **only** in a sandboxed subprocess with a scrubbed environment (no
+secrets inherited), a hard timeout, and gitignored scratch output. Generated code is never `exec`'d
+in the app process. Full threat model in [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ---
 
-## Docs index
+## Scope (honest)
 
-- [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — the pipeline and the interface contracts
-- [`AGENTS.md`](./docs/AGENTS.md) — how AI coding agents should work here
-- [`SECURITY.md`](./docs/SECURITY.md) — threat model, secrets, Aikido
+We win by reconstructing a few real part classes end-to-end with a **passing dimension table**, not
+by gesturing at every possible part. The backend runs the full loop today (verified on a
+multi-flange manifold and a staged mounting bracket). Clearest next steps: measure more dimension
+kinds (thickness, feature spacing), and wire the frontend to the live backend (an `ApiRunner`
+behind the existing `DrawingRunner` interface).
+
+## Docs
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the pipeline, verification, and roadmap
+- [`docs/AGENTS.md`](docs/AGENTS.md) — conventions for AI coding agents working in this repo
+- [`docs/SECURITY.md`](docs/SECURITY.md) — threat model and as-built status
+- [`docs/views-reference.md`](docs/views-reference.md) — reference of technical-drawing view types
+- [`docs/demo-script.md`](docs/demo-script.md) — the 60-second demo narration

@@ -285,13 +285,13 @@ Only part of a **symmetric** part is drawn; the other half is implied by a symme
 
 | View type | Generation method |
 |-----------|-----------------|
-| All 6 principal views | `HLRBRep_Algo` with standard `gp_Ax2` directions — see `projection.py` |
+| All 6 principal views | `HLRBRep_Algo` with standard `gp_Ax2` directions |
 | Arbitrary auxiliary view | Custom `gp_Ax2` normal = face's true normal |
 | Full / half / offset / aligned section | `BRepAlgoAPI_Section` to get cut wires + HLR on remaining solid |
 | Broken-out section | `BRepAlgoAPI_Common` with a small bounding-box cutter |
 | Revolved / removed section | `BRepAlgoAPI_Section` at a plane through the feature axis |
 | Detail view | Same projection, clip to a 2D bounding box region after HLR |
-| Isometric / dimetric / trimetric | Diagonal `gp_Ax2` direction — isometric already in `projection.py` |
+| Isometric / dimetric / trimetric | Diagonal `gp_Ax2` direction (isometric) |
 | Perspective | `HLRAlgo_Projector` perspective constructor (focal length parameter) |
 | Broken view | Post-process: clip polylines at break positions, insert break symbol |
 | Partial view | Post-process: clip polylines at symmetry axis |
